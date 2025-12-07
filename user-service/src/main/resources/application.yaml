@@ -1,0 +1,17 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: user-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/users_db  # TODO: вынести в env
+    username: second_shelf                          # TODO: вынести в env
+    password: secret                                # TODO: вынести в env
+
+  jpa:
+    hibernate:
+      ddl-auto: update   # TODO: change later
+    show-sql: true
+    open-in-view: false
