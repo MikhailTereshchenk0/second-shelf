@@ -1,6 +1,18 @@
 server:
   port: 8081
 
+internal:
+  token: ${INTERNAL_TOKEN:internal-secret-123}
+
+seed:
+  admin:
+    username: ${SEED_ADMIN_USERNAME:admin}
+    password: ${SEED_ADMIN_PASSWORD:admin12345}
+    email: ${SEED_ADMIN_EMAIL:admin@secondshelf.local}
+
+jwt:
+  secret: "change_this_secret_to_something_long_and_random_1234567890"
+
 spring:
   application:
     name: user-service

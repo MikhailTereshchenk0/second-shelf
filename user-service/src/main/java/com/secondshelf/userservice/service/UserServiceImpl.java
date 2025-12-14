@@ -1,5 +1,6 @@
 package com.secondshelf.userservice.service;
 
+import com.secondshelf.userservice.entity.Role;
 import com.secondshelf.userservice.exception.*;
 import com.secondshelf.userservice.dto.CreateUserProfileRequest;
 import com.secondshelf.userservice.dto.UpdateUserProfileRequest;
@@ -24,10 +25,6 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserProfileResponse createProfile(CreateUserProfileRequest request) {
 
-        if (userRepository.existsById(request.getId())) {
-            throw new UserProfileAlreadyExistsException(request.getId());
-        }
-
         userRepository.findByUsername(request.getUsername())
                 .ifPresent(u -> {
                     throw new UsernameAlreadyExistsException(request.getUsername());
@@ -40,7 +37,7 @@ public class UserServiceImpl implements UserService {
 
         User user = userMapper.toUser(request);
         user.setPassword(passwordEncoder.encode(request.getPassword()));
-        user.getRoles().add("ROLE_USER");
+        user.getRoles().add(Role.ROLE_USER);
 
         User saved = userRepository.save(user);
 

@@ -3,6 +3,7 @@ package com.secondshelf.authservice.controller;
 import com.secondshelf.authservice.dto.CurrentUserResponse;
 import com.secondshelf.authservice.dto.LoginRequest;
 import com.secondshelf.authservice.dto.LoginResponse;
+import com.secondshelf.authservice.dto.RegisterRequest;
 import com.secondshelf.authservice.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -39,4 +40,10 @@ public class AuthController {
 
         return new CurrentUserResponse(username, roles);
     }
+
+    @PostMapping("/register")
+    public LoginResponse register(@Valid @RequestBody RegisterRequest request) {
+        return authService.register(request);
+    }
+
 }

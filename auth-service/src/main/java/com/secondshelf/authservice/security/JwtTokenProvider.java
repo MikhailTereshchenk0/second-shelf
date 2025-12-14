@@ -24,7 +24,7 @@ public class JwtTokenProvider {
         this.validityInMs = validityInMs;
     }
 
-    public String generateToken(String username, List<String> roles) {
+    public String generateToken(Long userId, String username, List<String> roles) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + validityInMs);
 
@@ -32,6 +32,7 @@ public class JwtTokenProvider {
                 .subject(username)       // "sub" в payload
                 .issuedAt(now)           // "iat"
                 .expiration(expiry)      // "exp"
+                .claim("userId", userId)
                 .claim("roles", roles)
                 .signWith(key)           // HS256 по умолчанию для HMAC ключа
                 .compact();              // собирает токен в строку "xxx.yyy.zzz"

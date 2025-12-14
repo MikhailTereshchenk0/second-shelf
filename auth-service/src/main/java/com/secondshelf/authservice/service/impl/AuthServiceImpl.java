@@ -4,6 +4,7 @@ import com.secondshelf.authservice.client.UserServiceClient;
 import com.secondshelf.authservice.client.dto.UserAuthResponse;
 import com.secondshelf.authservice.dto.LoginRequest;
 import com.secondshelf.authservice.dto.LoginResponse;
+import com.secondshelf.authservice.dto.RegisterRequest;
 import com.secondshelf.authservice.security.JwtTokenProvider;
 import com.secondshelf.authservice.service.AuthService;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +19,16 @@ public class AuthServiceImpl implements AuthService {
     private final UserServiceClient userServiceClient;
 
     @Override
+    public LoginResponse register(RegisterRequest request) {
+        userServiceClient.createUser(request);
+
+        var user = userServiceClient.authenticate(request.getUsername(), request.getPassword());
+
+        String token = jwtTokenProvider.generateToken(user.getUserId(), user.getUsername(), user.getRoles());
+        return new LoginResponse(token, "Bearer");
+    }
+
+    @Override
     public LoginResponse login(LoginRequest loginRequest) {
         UserAuthResponse user = userServiceClient.authenticate(
                 loginRequest.getUsername(),
@@ -27,7 +38,7 @@ public class AuthServiceImpl implements AuthService {
         if(user == null)
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid username or password.");
 
-        String token = jwtTokenProvider.generateToken(user.getUsername(), user.getRoles());
+        String token = jwtTokenProvider.generateToken(user.getUserId(), user.getUsername(), user.getRoles());
         return new LoginResponse(token, "Bearer");
     }
 }

@@ -56,7 +56,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                             ? List.of()
                             : roles.stream()
                             .map(SimpleGrantedAuthority::new)
-                            .collect(Collectors.toList());
+                            .toList();
 
             // principal = username, credentials = null (пароль нам уже не нужен)
             UsernamePasswordAuthenticationToken authentication =
