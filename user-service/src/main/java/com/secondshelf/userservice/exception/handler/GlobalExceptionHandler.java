@@ -7,11 +7,13 @@ import com.secondshelf.userservice.exception.UsernameAlreadyExistsException;
 import com.secondshelf.userservice.exception.advice.ErrorResponse;
 import lombok.extern.log4j.Log4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -31,7 +33,7 @@ public class GlobalExceptionHandler {
                 .build();
     }
 
-    @ExceptionHandler(IllegalAccessError.class)
+    @ExceptionHandler(IllegalArgumentException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleIllegalArgument(IllegalArgumentException exception) {
         return ErrorResponse.builder()
@@ -66,6 +68,16 @@ public class GlobalExceptionHandler {
                 .code("MALFORMED_JSON_REQUEST")
                 .message(exception.getMessage())
                 .build();
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ErrorResponse> handleResponseStatus(ResponseStatusException ex) {
+        ErrorResponse body = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .code(ex.getStatusCode().toString())
+                .message(ex.getReason())
+                .build();
+        return ResponseEntity.status(ex.getStatusCode()).body(body);
     }
 
     @ExceptionHandler(Exception.class)

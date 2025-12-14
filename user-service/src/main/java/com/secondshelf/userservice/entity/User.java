@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
 
 @Entity
 @Table(name = "users")
@@ -14,6 +16,7 @@ import java.time.LocalDateTime;
 @Builder
 public class User {
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @Column(name = "username", unique = true, nullable = false, length = 50)
@@ -36,6 +39,16 @@ public class User {
 
     @Column(name = "about", columnDefinition = "text")
     private String about;
+
+    @Column(name = "password", nullable = false, length = 100)
+    private String password;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"))
+    @Column(name = "role", nullable = false)
+    @Builder.Default
+    private Set<String> roles = new HashSet<>();
+
 
     @PrePersist
     public void prePersist() {

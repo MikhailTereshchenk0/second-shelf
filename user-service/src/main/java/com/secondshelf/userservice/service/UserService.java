@@ -5,7 +5,6 @@ import com.secondshelf.userservice.dto.UpdateUserProfileRequest;
 import com.secondshelf.userservice.dto.UserProfileResponse;
 import org.springframework.stereotype.Service;
 
-@Service
 public interface UserService {
     UserProfileResponse createProfile(CreateUserProfileRequest request);
 

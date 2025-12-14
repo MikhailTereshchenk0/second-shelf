@@ -8,6 +8,7 @@ import com.secondshelf.userservice.entity.User;
 import com.secondshelf.userservice.mapper.UserMapper;
 import com.secondshelf.userservice.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,6 +19,7 @@ public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
     private final UserMapper userMapper;
+    private final PasswordEncoder passwordEncoder;
 
     @Override
     public UserProfileResponse createProfile(CreateUserProfileRequest request) {
@@ -37,6 +39,9 @@ public class UserServiceImpl implements UserService {
                 });
 
         User user = userMapper.toUser(request);
+        user.setPassword(passwordEncoder.encode(request.getPassword()));
+        user.getRoles().add("ROLE_USER");
+
         User saved = userRepository.save(user);
 
         return userMapper.toUserProfileResponse(saved);
