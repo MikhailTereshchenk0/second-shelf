@@ -5,7 +5,6 @@ import com.secondshelf.userservice.exception.UserNotFoundException;
 import com.secondshelf.userservice.exception.UserProfileAlreadyExistsException;
 import com.secondshelf.userservice.exception.UsernameAlreadyExistsException;
 import com.secondshelf.userservice.exception.advice.ErrorResponse;
-import lombok.extern.log4j.Log4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -19,7 +18,6 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
-@Log4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 

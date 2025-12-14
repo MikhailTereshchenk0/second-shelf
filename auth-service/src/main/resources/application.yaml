@@ -1,6 +1,9 @@
 server:
   port: 8080
 
+internal:
+  token: ${INTERNAL_TOKEN:internal-secret-123}
+
 user-service:
   base-url: http://localhost:8081
 

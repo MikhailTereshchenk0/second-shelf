@@ -1,5 +1,6 @@
 package com.secondshelf.userservice.internal.dto;
 
+import com.secondshelf.userservice.entity.Role;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
@@ -10,5 +11,5 @@ import java.util.List;
 public class AuthenticateResponse {
     private Long userId;
     private String username;
-    private List<String> roles;
+    private List<Role> roles;
 }

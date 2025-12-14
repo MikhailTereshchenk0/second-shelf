@@ -1,5 +1,6 @@
 package com.secondshelf.userservice.internal.service;
 
+import com.secondshelf.userservice.entity.Role;
 import com.secondshelf.userservice.internal.dto.AuthenticateResponse;
 import com.secondshelf.userservice.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -17,7 +18,7 @@ public class InternalAuthService {
 
     public AuthenticateResponse authenticate(String username, String password) {
         var user = userRepository.findByUsername(username).orElse(null);
-        if (user == null) {
+        if (user == null || !user.isEnabled()) {
             return null;
         }
 
@@ -25,7 +26,7 @@ public class InternalAuthService {
             return null;
         }
 
-        List<String> roles = user.getRoles().stream().toList();
+        List<Role> roles = user.getRoles().stream().toList();
 
         return new AuthenticateResponse(user.getId(), user.getUsername(), roles);
     }

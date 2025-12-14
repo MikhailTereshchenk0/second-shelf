@@ -11,6 +11,10 @@ public interface UserMapper {
 
     UserProfileResponse toUserProfileResponse(User user);
 
+    @Mapping(target = "id", ignore = true)
+    @Mapping(target = "password", ignore = true)
+    @Mapping(target = "roles", ignore = true)
+    @Mapping(target = "createdAt", ignore = true)
     User toUser(CreateUserProfileRequest request);
 
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)

@@ -1,4 +1,4 @@
-package com.secondshelf.userservice.controller;
+package com.secondshelf.userservice.internal.controller;
 
 import com.secondshelf.userservice.dto.CreateUserProfileRequest;
 import com.secondshelf.userservice.dto.UserProfileResponse;

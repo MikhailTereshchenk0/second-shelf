@@ -46,9 +46,13 @@ public class User {
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "role", nullable = false)
+    @Enumerated(EnumType.STRING)
     @Builder.Default
-    private Set<String> roles = new HashSet<>();
+    private Set<Role> roles = new HashSet<>();
 
+    @Column(name = "enabled", nullable = false)
+    @Builder.Default
+    private boolean enabled = true;
 
     @PrePersist
     public void prePersist() {
