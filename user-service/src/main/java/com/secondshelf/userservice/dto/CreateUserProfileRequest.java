@@ -34,4 +34,8 @@ public class CreateUserProfileRequest {
 
     @Size(max = 1000)
     private String about;
+
+    @NotBlank
+    @Size(min = 6, max = 100)
+    private String password;
 }
