@@ -1,25 +1,27 @@
 server:
-  port: 8080
+  port: ${AUTH_SERVICE_PORT}
 
 internal:
-  token: ${INTERNAL_TOKEN:internal-secret-123}
+  token: ${INTERNAL_TOKEN}
 
 user-service:
-  base-url: http://localhost:8081
+  base-url: ${USER_SERVICE_BASE_URL}
 
 spring:
   application:
     name: auth-service
+
   datasource:
-    url: jdbc:postgresql://localhost:5432/auth_db
-    username: second_shelf
-    password: secret
+    url: jdbc:postgresql://${DB_HOST}:${POSTGRES_PORT}/${AUTH_DB_NAME}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: update  # TODO: CHANGE LATER
     open-in-view: false
 
 jwt:
-  secret: "change_this_secret_to_something_long_and_random_1234567890"  # TODO: ???????? ? env, ???????? ??????
-  expiration-ms: 900000
-  refresh-expiration-ms: 2592000000
+  secret: ${JWT_SECRET:change_this_secret_to_something_long_and_random_1234567890_change_me}
+  expiration-ms: ${JWT_ACCESS_EXPIRATION_MS:900000}
+  refresh-expiration-ms: ${JWT_REFRESH_EXPIRATION_MS:2592000000}
