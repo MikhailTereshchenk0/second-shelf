@@ -2,6 +2,7 @@ package com.secondshelf.authservice.client;
 
 import com.secondshelf.authservice.client.dto.UserAuthRequest;
 import com.secondshelf.authservice.client.dto.UserAuthResponse;
+import com.secondshelf.authservice.client.dto.UserClaimsResponse;
 import com.secondshelf.authservice.dto.RegisterRequest;
 import com.secondshelf.authservice.exception.UserServiceClientException;
 import com.secondshelf.authservice.exception.advice.ErrorResponse;
@@ -65,4 +66,13 @@ public class UserServiceClient {
             return new UserServiceClientException(status, "User-service error: " + ex.getResponseBodyAsString());
         }
     }
+
+    public UserClaimsResponse getClaims(Long userId) {
+        return userServiceRestClient.get()
+                .uri("/internal/users/{id}/claims", userId)
+                .header("X-Internal-Token", internalToken)
+                .retrieve()
+                .body(UserClaimsResponse.class);
+    }
+
 }

@@ -78,17 +78,6 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ex.getStatusCode()).body(body);
     }
 
-    @ExceptionHandler(Exception.class)
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    public ErrorResponse handleGeneric(Exception exception) {
-        // log exception
-        return ErrorResponse.builder()
-                .timestamp(LocalDateTime.now())
-                .code("INTERNAL_SERVER_ERROR")
-                .message("Unexpected error occurred")
-                .build();
-    }
-
     @ExceptionHandler(UserProfileAlreadyExistsException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleProfileAlreadyExists(UserProfileAlreadyExistsException exception) {
