@@ -70,15 +70,4 @@ public class GlobalExceptionHandler {
                         .build()
         );
     }
-
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                ErrorResponse.builder()
-                        .timestamp(LocalDateTime.now())
-                        .code("INTERNAL_SERVER_ERROR")
-                        .message("Unexpected error occurred")
-                        .build()
-        );
-    }
 }

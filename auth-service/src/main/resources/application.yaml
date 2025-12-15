@@ -10,7 +10,16 @@ user-service:
 spring:
   application:
     name: auth-service
+  datasource:
+    url: jdbc:postgresql://localhost:5432/auth_db
+    username: second_shelf
+    password: secret
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
 
 jwt:
   secret: "change_this_secret_to_something_long_and_random_1234567890"  # TODO: ???????? ? env, ???????? ??????
-  expiration-ms: 3600000
+  expiration-ms: 900000
+  refresh-expiration-ms: 2592000000

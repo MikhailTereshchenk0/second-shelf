@@ -1,12 +1,10 @@
 package com.secondshelf.authservice.controller;
 
-import com.secondshelf.authservice.dto.CurrentUserResponse;
-import com.secondshelf.authservice.dto.LoginRequest;
-import com.secondshelf.authservice.dto.LoginResponse;
-import com.secondshelf.authservice.dto.RegisterRequest;
+import com.secondshelf.authservice.dto.*;
 import com.secondshelf.authservice.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.*;
@@ -27,7 +25,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public LoginResponse login(@Valid @RequestBody LoginRequest request) {
+    public TokenPairResponse login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request);
     }
 
@@ -42,8 +40,24 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public LoginResponse register(@Valid @RequestBody RegisterRequest request) {
+    public TokenPairResponse register(@Valid @RequestBody RegisterRequest request) {
         return authService.register(request);
     }
 
+    @PostMapping("/refresh")
+    public TokenPairResponse refresh(@Valid @RequestBody RefreshRequest request) {
+        return authService.refresh(request);
+    }
+
+    @PostMapping("/logout")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void logout(@Valid @RequestBody RefreshRequest request) {
+        authService.logout(request);
+    }
+
+    @PostMapping("/logout-all")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void logoutAll(@Valid @RequestBody RefreshRequest request) {
+        authService.logoutAll(request);
+    }
 }
