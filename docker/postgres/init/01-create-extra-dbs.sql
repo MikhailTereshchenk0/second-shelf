@@ -1,2 +1,3 @@
 CREATE DATABASE auth_db;
 CREATE DATABASE books_db;
+CREATE DATABASE exchange_db
