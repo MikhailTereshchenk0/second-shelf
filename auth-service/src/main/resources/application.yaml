@@ -12,9 +12,12 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     open-in-view: false
     show-sql: false
+
+  liquibase:
+    change-log: classpath:/db/changelog/db.changelog-master.yaml
 
 internal:
   token: ${INTERNAL_TOKEN:internal-secret-123}
