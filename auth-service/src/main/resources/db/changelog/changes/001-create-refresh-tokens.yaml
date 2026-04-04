@@ -1,0 +1,59 @@
+databaseChangeLog:
+  - changeSet:
+      id: 001-create-refresh-tokens
+      author: MikhailTereshchenk0
+      changes:
+        - createTable:
+            tableName: refresh_tokens
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    primaryKeyName: pk_refresh_tokens
+                    nullable: false
+
+              - column:
+                  name: token_hash
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+
+              - column:
+                  name: expires_at
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+
+              - column:
+                  name: revoked_at
+                  type: TIMESTAMP
+
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+
+        - createIndex:
+            tableName: refresh_tokens
+            indexName: idx_refresh_token_hash
+            unique: true
+            columns:
+              - column:
+                  name: token_hash
+
+        - createIndex:
+            tableName: refresh_tokens
+            indexName: idx_refresh_user_id
+            columns:
+              - column:
+                  name: user_id
