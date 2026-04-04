@@ -1,0 +1,77 @@
+databaseChangeLog:
+  - changeSet:
+      id: 001-create-exchange-requests
+      author: MikhailTereshchenk0
+      changes:
+        - createTable:
+            tableName: exchange_requests
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    primaryKeyName: pk_exchange_requests
+                    nullable: false
+
+              - column:
+                  name: requested_book_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+
+              - column:
+                  name: owner_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+
+              - column:
+                  name: requester_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+
+              - column:
+                  name: status
+                  type: VARCHAR(20)
+                  constraints:
+                    nullable: false
+
+              - column:
+                  name: message
+                  type: VARCHAR(1000)
+
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+
+        - createIndex:
+            tableName: exchange_requests
+            indexName: idx_ex_req_requested_book
+            columns:
+              - column:
+                  name: requested_book_id
+
+        - createIndex:
+            tableName: exchange_requests
+            indexName: idx_ex_req_owner
+            columns:
+              - column:
+                  name: owner_id
+
+        - createIndex:
+            tableName: exchange_requests
+            indexName: idx_ex_req_requester
+            columns:
+              - column:
+                  name: requester_id
