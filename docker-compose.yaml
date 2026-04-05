@@ -60,7 +60,7 @@ services:
       postgres:
         condition: service_healthy
       user-service:
-        condition: service_started
+        condition: service_healthy
 
   book-service:
     build:
@@ -101,7 +101,7 @@ services:
       postgres:
         condition: service_healthy
       book-service:
-        condition: service_started
+        condition: service_healthy
 
 volumes:
   pgdata:

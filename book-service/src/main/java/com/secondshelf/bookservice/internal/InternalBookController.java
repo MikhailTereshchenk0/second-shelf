@@ -2,9 +2,11 @@ package com.secondshelf.bookservice.internal;
 
 import com.secondshelf.bookservice.dto.BookResponse;
 import com.secondshelf.bookservice.entity.Book;
+import io.swagger.v3.oas.annotations.Hidden;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+@Hidden
 @RestController
 @RequestMapping("/internal/books")
 @RequiredArgsConstructor

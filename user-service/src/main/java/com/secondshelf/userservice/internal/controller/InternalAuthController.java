@@ -3,12 +3,14 @@ package com.secondshelf.userservice.internal.controller;
 import com.secondshelf.userservice.internal.dto.AuthenticateRequest;
 import com.secondshelf.userservice.internal.dto.AuthenticateResponse;
 import com.secondshelf.userservice.internal.service.InternalAuthService;
+import io.swagger.v3.oas.annotations.Hidden;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+@Hidden
 @RestController
 @RequestMapping("/internal/auth")
 @RequiredArgsConstructor

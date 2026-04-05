@@ -29,3 +29,25 @@ jwt:
   secret: ${JWT_SECRET:change_this_secret_to_something_long_and_random_1234567890_change_me}
   expiration-ms: ${JWT_ACCESS_EXPIRATION_MS:900000}
   refresh-expiration-ms: ${JWT_REFRESH_EXPIRATION_MS:2592000000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
