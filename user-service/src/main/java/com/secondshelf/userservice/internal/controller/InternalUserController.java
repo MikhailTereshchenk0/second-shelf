@@ -6,11 +6,13 @@ import com.secondshelf.userservice.exception.UserNotFoundException;
 import com.secondshelf.userservice.internal.dto.UserClaimsResponse;
 import com.secondshelf.userservice.repository.UserRepository;
 import com.secondshelf.userservice.service.UserService;
+import io.swagger.v3.oas.annotations.Hidden;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
+@Hidden
 @RestController
 @RequestMapping("/internal/users")
 @RequiredArgsConstructor
