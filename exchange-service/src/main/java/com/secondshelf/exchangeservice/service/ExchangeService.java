@@ -41,6 +41,7 @@ public class ExchangeService {
         ExchangeRequest saved = exchangeRepository.save(
                 ExchangeRequest.builder()
                         .requestedBookId(req.getRequestedBookId())
+                        .offeredBookId(req.getOfferedBookId())
                         .ownerId(book.getOwnerId())
                         .requesterId(requesterId)
                         .status(ExchangeStatus.PENDING)
@@ -155,6 +156,7 @@ public class ExchangeService {
         return ExchangeResponse.builder()
                 .id(r.getId())
                 .requestedBookId(r.getRequestedBookId())
+                .offeredBookId(r.getOfferedBookId())
                 .ownerId(r.getOwnerId())
                 .requesterId(r.getRequesterId())
                 .status(r.getStatus())

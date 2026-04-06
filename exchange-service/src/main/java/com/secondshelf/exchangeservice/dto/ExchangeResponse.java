@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
 public class ExchangeResponse {
     private Long id;
     private Long requestedBookId;
+    private Long offeredBookId;
     private Long ownerId;
     private Long requesterId;
     private ExchangeStatus status;

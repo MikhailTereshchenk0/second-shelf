@@ -40,6 +40,7 @@ class ExchangeServiceTest {
         // arrange
         CreateExchangeRequest request = new CreateExchangeRequest();
         request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
         request.setMessage("I would like to exchange this book.");
 
         BookDto book = new BookDto();
@@ -64,6 +65,7 @@ class ExchangeServiceTest {
         assertNotNull(response);
         assertEquals(1L, response.getId());
         assertEquals(100L, response.getRequestedBookId());
+        assertEquals(200L, response.getOfferedBookId());
         assertEquals(55L, response.getOwnerId());
         assertEquals(42L, response.getRequesterId());
         assertEquals(ExchangeStatus.PENDING, response.getStatus());
@@ -73,6 +75,7 @@ class ExchangeServiceTest {
 
         ExchangeRequest savedRequest = exchangeCaptor.getValue();
         assertEquals(100L, savedRequest.getRequestedBookId());
+        assertEquals(200L, savedRequest.getOfferedBookId());
         assertEquals(55L, savedRequest.getOwnerId());
         assertEquals(42L, savedRequest.getRequesterId());
         assertEquals(ExchangeStatus.PENDING, savedRequest.getStatus());
@@ -84,6 +87,7 @@ class ExchangeServiceTest {
         // arrange
         CreateExchangeRequest request = new CreateExchangeRequest();
         request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
 
         BookDto book = new BookDto();
         book.setId(100L);
@@ -109,6 +113,7 @@ class ExchangeServiceTest {
         // arrange
         CreateExchangeRequest request = new CreateExchangeRequest();
         request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
 
         BookDto book = new BookDto();
         book.setId(100L);
