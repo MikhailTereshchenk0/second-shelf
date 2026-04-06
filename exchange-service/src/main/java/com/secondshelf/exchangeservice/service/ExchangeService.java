@@ -1,6 +1,7 @@
 package com.secondshelf.exchangeservice.service;
 
 import com.secondshelf.exchangeservice.client.BookServiceClient;
+import com.secondshelf.exchangeservice.client.dto.BookDto;
 import com.secondshelf.exchangeservice.dto.CreateExchangeRequest;
 import com.secondshelf.exchangeservice.dto.ExchangeResponse;
 import com.secondshelf.exchangeservice.entity.ExchangeRequest;
@@ -26,23 +27,30 @@ public class ExchangeService {
     public ExchangeResponse create(CreateExchangeRequest req, UserPrincipal principal) {
         Long requesterId = requireUserId(principal);
 
-        var book = bookServiceClient.getBook(req.getRequestedBookId());
+        if (req.getRequestedBookId().equals(req.getOfferedBookId())) {
+            throw new IllegalArgumentException("Requested book and offered book must be different.");
+        }
 
-        if (book.getOwnerId().equals(requesterId)) {
-            throw new IllegalArgumentException("You cannot request exchange for your own book.");
-        }
-        if (!"PUBLIC".equals(book.getVisibility())) {
-            throw new IllegalArgumentException("Book is not public.");
-        }
-        if (!"AVAILABLE".equals(book.getStatus())) {
-            throw new IllegalArgumentException("Book is not available.");
+        BookDto requestedBook = bookServiceClient.getBook(req.getRequestedBookId());
+        BookDto offeredBook = bookServiceClient.getBook(req.getOfferedBookId());
+
+        validateRequestedBook(requestedBook, requesterId);
+        validateOfferedBook(offeredBook, requesterId);
+
+        if (exchangeRepository.existsByRequesterIdAndRequestedBookIdAndOfferedBookIdAndStatusIn(
+                requesterId,
+                req.getRequestedBookId(),
+                req.getOfferedBookId(),
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+        )) {
+            throw new IllegalArgumentException("Duplicate active exchange request already exists.");
         }
 
         ExchangeRequest saved = exchangeRepository.save(
                 ExchangeRequest.builder()
                         .requestedBookId(req.getRequestedBookId())
                         .offeredBookId(req.getOfferedBookId())
-                        .ownerId(book.getOwnerId())
+                        .ownerId(requestedBook.getOwnerId())
                         .requesterId(requesterId)
                         .status(ExchangeStatus.PENDING)
                         .message(req.getMessage())
@@ -143,6 +151,30 @@ public class ExchangeService {
         req.setStatus(ExchangeStatus.COMPLETED);
 
         return toResponse(exchangeRepository.save(req));
+    }
+
+    private void validateRequestedBook(BookDto requestedBook, Long requesterId) {
+        if (requestedBook.getOwnerId().equals(requesterId)) {
+            throw new IllegalArgumentException("You cannot request exchange for your own book.");
+        }
+        if (!"PUBLIC".equals(requestedBook.getVisibility())) {
+            throw new IllegalArgumentException("Requested book must be public.");
+        }
+        if (!"AVAILABLE".equals(requestedBook.getStatus())) {
+            throw new IllegalArgumentException("Requested book must be available.");
+        }
+    }
+
+    private void validateOfferedBook(BookDto offeredBook, Long requesterId) {
+        if (!requesterId.equals(offeredBook.getOwnerId())) {
+            throw new IllegalArgumentException("Offered book must belong to requester.");
+        }
+        if (!"PUBLIC".equals(offeredBook.getVisibility())) {
+            throw new IllegalArgumentException("Offered book must be public.");
+        }
+        if (!"AVAILABLE".equals(offeredBook.getStatus())) {
+            throw new IllegalArgumentException("Offered book must be available.");
+        }
     }
 
     private Long requireUserId(UserPrincipal principal) {

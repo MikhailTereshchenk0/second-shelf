@@ -19,6 +19,13 @@ public interface ExchangeRepository extends JpaRepository<ExchangeRequest, Long>
 
     boolean existsByRequestedBookIdAndStatus(Long requestedBookId, ExchangeStatus status);
 
+    boolean existsByRequesterIdAndRequestedBookIdAndOfferedBookIdAndStatusIn(
+            Long requesterId,
+            Long requestedBookId,
+            Long offeredBookId,
+            Collection<ExchangeStatus> statuses
+    );
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from ExchangeRequest r where r.id = :id")
     Optional<ExchangeRequest> findByIdForUpdate(@Param("id") Long id);

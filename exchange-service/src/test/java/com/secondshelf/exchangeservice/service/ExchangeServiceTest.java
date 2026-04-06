@@ -43,13 +43,28 @@ class ExchangeServiceTest {
         request.setOfferedBookId(200L);
         request.setMessage("I would like to exchange this book.");
 
-        BookDto book = new BookDto();
-        book.setId(100L);
-        book.setOwnerId(55L);
-        book.setVisibility("PUBLIC");
-        book.setStatus("AVAILABLE");
+        BookDto requestedBook = new BookDto();
+        requestedBook.setId(100L);
+        requestedBook.setOwnerId(55L);
+        requestedBook.setVisibility("PUBLIC");
+        requestedBook.setStatus("AVAILABLE");
 
-        when(bookServiceClient.getBook(100L)).thenReturn(book);
+        BookDto offeredBook = new BookDto();
+        offeredBook.setId(200L);
+        offeredBook.setOwnerId(42L);
+        offeredBook.setVisibility("PUBLIC");
+        offeredBook.setStatus("AVAILABLE");
+
+        when(bookServiceClient.getBook(100L)).thenReturn(requestedBook);
+        when(bookServiceClient.getBook(200L)).thenReturn(offeredBook);
+
+        when(exchangeRepository.existsByRequesterIdAndRequestedBookIdAndOfferedBookIdAndStatusIn(
+                42L,
+                100L,
+                200L,
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+        )).thenReturn(false);
+
         when(exchangeRepository.save(any(ExchangeRequest.class))).thenAnswer(invocation -> {
             ExchangeRequest saved = invocation.getArgument(0);
             saved.setId(1L);
@@ -130,7 +145,164 @@ class ExchangeServiceTest {
         );
 
         // assert
-        assertEquals("Book is not public.", exception.getMessage());
+        assertEquals("Requested book must be public.", exception.getMessage());
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+    }
+
+    @Test
+    void createShouldRejectWhenRequestedAndOfferedBookAreSame() {
+        // arrange
+        CreateExchangeRequest request = new CreateExchangeRequest();
+        request.setRequestedBookId(100L);
+        request.setOfferedBookId(100L);
+
+        // act
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> exchangeService.create(request, new UserPrincipal(42L, "alice"))
+        );
+
+        // assert
+        assertEquals("Requested book and offered book must be different.", exception.getMessage());
+        verify(bookServiceClient, never()).getBook(anyLong());
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+    }
+
+    @Test
+    void createShouldRejectWhenOfferedBookDoesNotBelongToRequester() {
+        // arrange
+        CreateExchangeRequest request = new CreateExchangeRequest();
+        request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
+
+        BookDto requestedBook = new BookDto();
+        requestedBook.setId(100L);
+        requestedBook.setOwnerId(55L);
+        requestedBook.setVisibility("PUBLIC");
+        requestedBook.setStatus("AVAILABLE");
+
+        BookDto offeredBook = new BookDto();
+        offeredBook.setId(200L);
+        offeredBook.setOwnerId(99L);
+        offeredBook.setVisibility("PUBLIC");
+        offeredBook.setStatus("AVAILABLE");
+
+        when(bookServiceClient.getBook(100L)).thenReturn(requestedBook);
+        when(bookServiceClient.getBook(200L)).thenReturn(offeredBook);
+
+        // act
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> exchangeService.create(request, new UserPrincipal(42L, "alice"))
+        );
+
+        // assert
+        assertEquals("Offered book must belong to requester.", exception.getMessage());
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+    }
+
+    @Test
+    void createShouldRejectWhenOfferedBookIsNotPublic() {
+        // arrange
+        CreateExchangeRequest request = new CreateExchangeRequest();
+        request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
+
+        BookDto requestedBook = new BookDto();
+        requestedBook.setId(100L);
+        requestedBook.setOwnerId(55L);
+        requestedBook.setVisibility("PUBLIC");
+        requestedBook.setStatus("AVAILABLE");
+
+        BookDto offeredBook = new BookDto();
+        offeredBook.setId(200L);
+        offeredBook.setOwnerId(42L);
+        offeredBook.setVisibility("PRIVATE");
+        offeredBook.setStatus("AVAILABLE");
+
+        when(bookServiceClient.getBook(100L)).thenReturn(requestedBook);
+        when(bookServiceClient.getBook(200L)).thenReturn(offeredBook);
+
+        // act
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> exchangeService.create(request, new UserPrincipal(42L, "alice"))
+        );
+
+        // assert
+        assertEquals("Offered book must be public.", exception.getMessage());
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+    }
+
+    @Test
+    void createShouldRejectWhenOfferedBookIsNotAvailable() {
+        // arrange
+        CreateExchangeRequest request = new CreateExchangeRequest();
+        request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
+
+        BookDto requestedBook = new BookDto();
+        requestedBook.setId(100L);
+        requestedBook.setOwnerId(55L);
+        requestedBook.setVisibility("PUBLIC");
+        requestedBook.setStatus("AVAILABLE");
+
+        BookDto offeredBook = new BookDto();
+        offeredBook.setId(200L);
+        offeredBook.setOwnerId(42L);
+        offeredBook.setVisibility("PUBLIC");
+        offeredBook.setStatus("RESERVED");
+
+        when(bookServiceClient.getBook(100L)).thenReturn(requestedBook);
+        when(bookServiceClient.getBook(200L)).thenReturn(offeredBook);
+
+        // act
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> exchangeService.create(request, new UserPrincipal(42L, "alice"))
+        );
+
+        // assert
+        assertEquals("Offered book must be available.", exception.getMessage());
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+    }
+
+    @Test
+    void createShouldRejectDuplicateActiveRequest() {
+        // arrange
+        CreateExchangeRequest request = new CreateExchangeRequest();
+        request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
+
+        BookDto requestedBook = new BookDto();
+        requestedBook.setId(100L);
+        requestedBook.setOwnerId(55L);
+        requestedBook.setVisibility("PUBLIC");
+        requestedBook.setStatus("AVAILABLE");
+
+        BookDto offeredBook = new BookDto();
+        offeredBook.setId(200L);
+        offeredBook.setOwnerId(42L);
+        offeredBook.setVisibility("PUBLIC");
+        offeredBook.setStatus("AVAILABLE");
+
+        when(bookServiceClient.getBook(100L)).thenReturn(requestedBook);
+        when(bookServiceClient.getBook(200L)).thenReturn(offeredBook);
+        when(exchangeRepository.existsByRequesterIdAndRequestedBookIdAndOfferedBookIdAndStatusIn(
+                42L,
+                100L,
+                200L,
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+        )).thenReturn(true);
+
+        // act
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> exchangeService.create(request, new UserPrincipal(42L, "alice"))
+        );
+
+        // assert
+        assertEquals("Duplicate active exchange request already exists.", exception.getMessage());
         verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
     }
 
