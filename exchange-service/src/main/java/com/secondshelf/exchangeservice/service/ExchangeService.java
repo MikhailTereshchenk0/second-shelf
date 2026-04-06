@@ -14,6 +14,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -84,18 +85,22 @@ public class ExchangeService {
             throw new IllegalArgumentException("Only PENDING request can be accepted.");
         }
 
-        // Лочим все pending/accepted по этой книге, чтобы не приняли дважды одновременно
-        exchangeRepository.lockAllByRequestedBookIdAndStatuses(
-                req.getRequestedBookId(),
+        List<Long> bookIds = List.of(req.getRequestedBookId(), req.getOfferedBookId());
+
+        exchangeRepository.lockAllActiveByBookIds(
+                bookIds,
                 List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
         );
 
-        if (exchangeRepository.existsByRequestedBookIdAndStatus(req.getRequestedBookId(), ExchangeStatus.ACCEPTED)) {
-            throw new IllegalArgumentException("This book already has an accepted exchange request.");
+        if (exchangeRepository.existsAnotherByStatusAndBookIds(
+                req.getId(),
+                bookIds,
+                ExchangeStatus.ACCEPTED
+        )) {
+            throw new IllegalArgumentException("One of the books already participates in another accepted exchange.");
         }
 
-        // reserve книгу в book-service (внутренним токеном)
-        bookServiceClient.reserve(req.getRequestedBookId());
+        reserveBothBooks(req);
 
         req.setStatus(ExchangeStatus.ACCEPTED);
 
@@ -151,6 +156,32 @@ public class ExchangeService {
         req.setStatus(ExchangeStatus.COMPLETED);
 
         return toResponse(exchangeRepository.save(req));
+    }
+
+    private void reserveBothBooks(ExchangeRequest req) {
+        List<Long> reservedBookIds = new ArrayList<>();
+
+        try {
+            bookServiceClient.reserve(req.getRequestedBookId());
+            reservedBookIds.add(req.getRequestedBookId());
+
+            bookServiceClient.reserve(req.getOfferedBookId());
+            reservedBookIds.add(req.getOfferedBookId());
+        } catch (RuntimeException e) {
+            rollbackReservedBooks(reservedBookIds);
+            throw e;
+        }
+    }
+
+    private void rollbackReservedBooks(List<Long> reservedBookIds) {
+        for (int i = reservedBookIds.size() - 1; i >= 0; i--) {
+            try {
+                bookServiceClient.makeAvailable(reservedBookIds.get(i));
+            } catch (RuntimeException rollbackException) {
+                // best-effort compensation:
+                // exchange request is not accepted, but manual investigation may be required
+            }
+        }
     }
 
     private void validateRequestedBook(BookDto requestedBook, Long requesterId) {
