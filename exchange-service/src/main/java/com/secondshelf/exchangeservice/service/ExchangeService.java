@@ -153,7 +153,7 @@ public class ExchangeService {
             throw new IllegalArgumentException("Only ACCEPTED request can be completed.");
         }
 
-        bookServiceClient.markExchanged(req.getRequestedBookId());
+        completeBothBooks(req);
         req.setStatus(ExchangeStatus.COMPLETED);
 
         return toResponse(exchangeRepository.save(req));
@@ -197,6 +197,11 @@ public class ExchangeService {
 
         conflictingPendingRequests.forEach(r -> r.setStatus(ExchangeStatus.DECLINED));
         exchangeRepository.saveAll(conflictingPendingRequests);
+    }
+
+    private void completeBothBooks(ExchangeRequest req) {
+        bookServiceClient.markExchanged(req.getRequestedBookId());
+        bookServiceClient.markExchanged(req.getOfferedBookId());
     }
 
     private void validateRequestedBook(BookDto requestedBook, Long requesterId) {

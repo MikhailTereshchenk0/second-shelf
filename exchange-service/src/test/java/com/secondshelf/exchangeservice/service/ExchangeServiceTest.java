@@ -526,4 +526,64 @@ class ExchangeServiceTest {
         assertEquals(20L, result.getContent().get(0).getId());
         assertEquals(42L, result.getContent().get(0).getRequesterId());
     }
+
+    @Test
+    void completeShouldMarkBothBooksExchangedAndSetCompletedStatus() {
+        // arrange
+        ExchangeRequest request = ExchangeRequest.builder()
+                .id(10L)
+                .requestedBookId(100L)
+                .offeredBookId(200L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.ACCEPTED)
+                .build();
+
+        when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
+        when(exchangeRepository.save(any(ExchangeRequest.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // act
+        ExchangeResponse response = exchangeService.complete(10L, new UserPrincipal(55L, "owner"));
+
+        // assert
+        assertNotNull(response);
+        assertEquals(ExchangeStatus.COMPLETED, response.getStatus());
+
+        verify(bookServiceClient).markExchanged(100L);
+        verify(bookServiceClient).markExchanged(200L);
+        verify(exchangeRepository).save(request);
+        assertEquals(ExchangeStatus.COMPLETED, request.getStatus());
+    }
+
+    @Test
+    void completeShouldNotSaveRequestWhenSecondBookCompletionFails() {
+        // arrange
+        ExchangeRequest request = ExchangeRequest.builder()
+                .id(10L)
+                .requestedBookId(100L)
+                .offeredBookId(200L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.ACCEPTED)
+                .build();
+
+        when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
+        when(bookServiceClient.markExchanged(100L)).thenReturn(new BookDto());
+        when(bookServiceClient.markExchanged(200L))
+                .thenThrow(new IllegalStateException("Offered book cannot be completed."));
+
+        // act
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> exchangeService.complete(10L, new UserPrincipal(55L, "owner"))
+        );
+
+        // assert
+        assertEquals("Offered book cannot be completed.", exception.getMessage());
+
+        verify(bookServiceClient).markExchanged(100L);
+        verify(bookServiceClient).markExchanged(200L);
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+        assertEquals(ExchangeStatus.ACCEPTED, request.getStatus());
+    }
 }
