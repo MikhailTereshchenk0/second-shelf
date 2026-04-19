@@ -320,6 +320,10 @@ class ExchangeServiceTest {
                 .build();
 
         when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
+        when(exchangeRepository.lockAllActiveByBookIds(
+                List.of(100L, 200L),
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+        )).thenReturn(List.of(request));
         when(exchangeRepository.existsAnotherByStatusAndBookIds(
                 10L,
                 List.of(100L, 200L),
@@ -340,6 +344,7 @@ class ExchangeServiceTest {
         );
         verify(bookServiceClient).reserve(100L);
         verify(bookServiceClient).reserve(200L);
+        verify(exchangeRepository, never()).saveAll(anyList());
         verify(exchangeRepository).save(request);
         assertEquals(ExchangeStatus.ACCEPTED, request.getStatus());
     }
@@ -362,6 +367,10 @@ class ExchangeServiceTest {
                 List.of(100L, 200L),
                 ExchangeStatus.ACCEPTED
         )).thenReturn(true);
+        when(exchangeRepository.lockAllActiveByBookIds(
+                List.of(100L, 200L),
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+        )).thenReturn(List.of(request));
 
         // act
         IllegalArgumentException exception = assertThrows(
@@ -377,6 +386,7 @@ class ExchangeServiceTest {
         );
         verify(bookServiceClient, never()).reserve(anyLong());
         verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+        verify(exchangeRepository, never()).saveAll(anyList());
     }
 
     @Test
@@ -400,6 +410,10 @@ class ExchangeServiceTest {
 
         when(bookServiceClient.reserve(100L)).thenReturn(new BookDto());
         when(bookServiceClient.reserve(200L)).thenThrow(new IllegalStateException("Offered book cannot be reserved."));
+        when(exchangeRepository.lockAllActiveByBookIds(
+                List.of(100L, 200L),
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+        )).thenReturn(List.of(request));
 
         // act
         IllegalStateException exception = assertThrows(
@@ -414,6 +428,7 @@ class ExchangeServiceTest {
         verify(bookServiceClient).reserve(200L);
         verify(bookServiceClient).makeAvailable(100L);
         verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+        verify(exchangeRepository, never()).saveAll(anyList());
         assertEquals(ExchangeStatus.PENDING, request.getStatus());
     }
 

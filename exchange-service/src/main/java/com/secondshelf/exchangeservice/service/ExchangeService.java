@@ -87,7 +87,7 @@ public class ExchangeService {
 
         List<Long> bookIds = List.of(req.getRequestedBookId(), req.getOfferedBookId());
 
-        exchangeRepository.lockAllActiveByBookIds(
+        List<ExchangeRequest> activeRequests = exchangeRepository.lockAllActiveByBookIds(
                 bookIds,
                 List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
         );
@@ -103,6 +103,7 @@ public class ExchangeService {
         reserveBothBooks(req);
 
         req.setStatus(ExchangeStatus.ACCEPTED);
+        declineConflictingPendingRequests(req.getId(), activeRequests);
 
         return toResponse(exchangeRepository.save(req));
     }
@@ -182,6 +183,20 @@ public class ExchangeService {
                 // exchange request is not accepted, but manual investigation may be required
             }
         }
+    }
+
+    private void declineConflictingPendingRequests(Long acceptedExchangeId, List<ExchangeRequest> activeRequests) {
+        List<ExchangeRequest> conflictingPendingRequests = activeRequests.stream()
+                .filter(r -> !r.getId().equals(acceptedExchangeId))
+                .filter(r -> r.getStatus() == ExchangeStatus.PENDING)
+                .toList();
+
+        if (conflictingPendingRequests.isEmpty()) {
+            return;
+        }
+
+        conflictingPendingRequests.forEach(r -> r.setStatus(ExchangeStatus.DECLINED));
+        exchangeRepository.saveAll(conflictingPendingRequests);
     }
 
     private void validateRequestedBook(BookDto requestedBook, Long requesterId) {
