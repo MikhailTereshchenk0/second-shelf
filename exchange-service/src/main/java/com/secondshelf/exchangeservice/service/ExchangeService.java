@@ -132,11 +132,16 @@ public class ExchangeService {
         if (!me.equals(req.getRequesterId())) {
             throw new IllegalArgumentException("Only requester can cancel.");
         }
-        if (req.getStatus() != ExchangeStatus.PENDING) {
-            throw new IllegalArgumentException("Only PENDING request can be cancelled.");
+        if (req.getStatus() != ExchangeStatus.PENDING && req.getStatus() != ExchangeStatus.ACCEPTED) {
+            throw new IllegalArgumentException("Only PENDING or ACCEPTED request can be canceled.");
+        }
+
+        if (req.getStatus() == ExchangeStatus.ACCEPTED) {
+            releaseBothBooks(req);
         }
 
         req.setStatus(ExchangeStatus.CANCELLED);
+
         return toResponse(exchangeRepository.save(req));
     }
 
@@ -202,6 +207,32 @@ public class ExchangeService {
     private void completeBothBooks(ExchangeRequest req) {
         bookServiceClient.markExchanged(req.getRequestedBookId());
         bookServiceClient.markExchanged(req.getOfferedBookId());
+    }
+
+    private void releaseBothBooks(ExchangeRequest req) {
+        List<Long> releasedBookIds = new ArrayList<>();
+
+        try {
+            bookServiceClient.makeAvailable(req.getRequestedBookId());
+            releasedBookIds.add(req.getRequestedBookId());
+
+            bookServiceClient.makeAvailable(req.getOfferedBookId());
+            releasedBookIds.add(req.getOfferedBookId());
+        } catch (RuntimeException e) {
+            rollbackReleasedBooks(releasedBookIds);
+            throw e;
+        }
+    }
+
+    private void rollbackReleasedBooks(List<Long> releasedBookIds) {
+        for (int i = releasedBookIds.size() - 1; i >= 0; i--) {
+            try {
+                bookServiceClient.reserve(releasedBookIds.get(i));
+            } catch (RuntimeException rollbackException) {
+                // best-effort compensation:
+                // exchange request is not canceled, but manual investigation may be required
+            }
+        }
     }
 
     private void validateRequestedBook(BookDto requestedBook, Long requesterId) {
