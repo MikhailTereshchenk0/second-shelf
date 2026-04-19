@@ -31,7 +31,7 @@ public class ExchangeController {
 
     @Operation(
             summary = "Create exchange request",
-            description = "Creates a new exchange request for a target book"
+            description = "Creates a new exchange request where the authenticated user offers one of their books in exchange for a requested public book"
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Exchange request created successfully"),

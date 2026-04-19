@@ -40,15 +40,31 @@ class ExchangeServiceTest {
         // arrange
         CreateExchangeRequest request = new CreateExchangeRequest();
         request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
         request.setMessage("I would like to exchange this book.");
 
-        BookDto book = new BookDto();
-        book.setId(100L);
-        book.setOwnerId(55L);
-        book.setVisibility("PUBLIC");
-        book.setStatus("AVAILABLE");
+        BookDto requestedBook = new BookDto();
+        requestedBook.setId(100L);
+        requestedBook.setOwnerId(55L);
+        requestedBook.setVisibility("PUBLIC");
+        requestedBook.setStatus("AVAILABLE");
 
-        when(bookServiceClient.getBook(100L)).thenReturn(book);
+        BookDto offeredBook = new BookDto();
+        offeredBook.setId(200L);
+        offeredBook.setOwnerId(42L);
+        offeredBook.setVisibility("PUBLIC");
+        offeredBook.setStatus("AVAILABLE");
+
+        when(bookServiceClient.getBook(100L)).thenReturn(requestedBook);
+        when(bookServiceClient.getBook(200L)).thenReturn(offeredBook);
+
+        when(exchangeRepository.existsByRequesterIdAndRequestedBookIdAndOfferedBookIdAndStatusIn(
+                42L,
+                100L,
+                200L,
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+        )).thenReturn(false);
+
         when(exchangeRepository.save(any(ExchangeRequest.class))).thenAnswer(invocation -> {
             ExchangeRequest saved = invocation.getArgument(0);
             saved.setId(1L);
@@ -64,6 +80,7 @@ class ExchangeServiceTest {
         assertNotNull(response);
         assertEquals(1L, response.getId());
         assertEquals(100L, response.getRequestedBookId());
+        assertEquals(200L, response.getOfferedBookId());
         assertEquals(55L, response.getOwnerId());
         assertEquals(42L, response.getRequesterId());
         assertEquals(ExchangeStatus.PENDING, response.getStatus());
@@ -73,6 +90,7 @@ class ExchangeServiceTest {
 
         ExchangeRequest savedRequest = exchangeCaptor.getValue();
         assertEquals(100L, savedRequest.getRequestedBookId());
+        assertEquals(200L, savedRequest.getOfferedBookId());
         assertEquals(55L, savedRequest.getOwnerId());
         assertEquals(42L, savedRequest.getRequesterId());
         assertEquals(ExchangeStatus.PENDING, savedRequest.getStatus());
@@ -84,6 +102,7 @@ class ExchangeServiceTest {
         // arrange
         CreateExchangeRequest request = new CreateExchangeRequest();
         request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
 
         BookDto book = new BookDto();
         book.setId(100L);
@@ -109,6 +128,7 @@ class ExchangeServiceTest {
         // arrange
         CreateExchangeRequest request = new CreateExchangeRequest();
         request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
 
         BookDto book = new BookDto();
         book.setId(100L);
@@ -125,31 +145,190 @@ class ExchangeServiceTest {
         );
 
         // assert
-        assertEquals("Book is not public.", exception.getMessage());
+        assertEquals("Requested book must be public.", exception.getMessage());
         verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
     }
 
     @Test
-    void acceptShouldLockBookReserveItAndMarkRequestAccepted() {
+    void createShouldRejectWhenRequestedAndOfferedBookAreSame() {
+        // arrange
+        CreateExchangeRequest request = new CreateExchangeRequest();
+        request.setRequestedBookId(100L);
+        request.setOfferedBookId(100L);
+
+        // act
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> exchangeService.create(request, new UserPrincipal(42L, "alice"))
+        );
+
+        // assert
+        assertEquals("Requested book and offered book must be different.", exception.getMessage());
+        verify(bookServiceClient, never()).getBook(anyLong());
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+    }
+
+    @Test
+    void createShouldRejectWhenOfferedBookDoesNotBelongToRequester() {
+        // arrange
+        CreateExchangeRequest request = new CreateExchangeRequest();
+        request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
+
+        BookDto requestedBook = new BookDto();
+        requestedBook.setId(100L);
+        requestedBook.setOwnerId(55L);
+        requestedBook.setVisibility("PUBLIC");
+        requestedBook.setStatus("AVAILABLE");
+
+        BookDto offeredBook = new BookDto();
+        offeredBook.setId(200L);
+        offeredBook.setOwnerId(99L);
+        offeredBook.setVisibility("PUBLIC");
+        offeredBook.setStatus("AVAILABLE");
+
+        when(bookServiceClient.getBook(100L)).thenReturn(requestedBook);
+        when(bookServiceClient.getBook(200L)).thenReturn(offeredBook);
+
+        // act
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> exchangeService.create(request, new UserPrincipal(42L, "alice"))
+        );
+
+        // assert
+        assertEquals("Offered book must belong to requester.", exception.getMessage());
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+    }
+
+    @Test
+    void createShouldRejectWhenOfferedBookIsNotPublic() {
+        // arrange
+        CreateExchangeRequest request = new CreateExchangeRequest();
+        request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
+
+        BookDto requestedBook = new BookDto();
+        requestedBook.setId(100L);
+        requestedBook.setOwnerId(55L);
+        requestedBook.setVisibility("PUBLIC");
+        requestedBook.setStatus("AVAILABLE");
+
+        BookDto offeredBook = new BookDto();
+        offeredBook.setId(200L);
+        offeredBook.setOwnerId(42L);
+        offeredBook.setVisibility("PRIVATE");
+        offeredBook.setStatus("AVAILABLE");
+
+        when(bookServiceClient.getBook(100L)).thenReturn(requestedBook);
+        when(bookServiceClient.getBook(200L)).thenReturn(offeredBook);
+
+        // act
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> exchangeService.create(request, new UserPrincipal(42L, "alice"))
+        );
+
+        // assert
+        assertEquals("Offered book must be public.", exception.getMessage());
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+    }
+
+    @Test
+    void createShouldRejectWhenOfferedBookIsNotAvailable() {
+        // arrange
+        CreateExchangeRequest request = new CreateExchangeRequest();
+        request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
+
+        BookDto requestedBook = new BookDto();
+        requestedBook.setId(100L);
+        requestedBook.setOwnerId(55L);
+        requestedBook.setVisibility("PUBLIC");
+        requestedBook.setStatus("AVAILABLE");
+
+        BookDto offeredBook = new BookDto();
+        offeredBook.setId(200L);
+        offeredBook.setOwnerId(42L);
+        offeredBook.setVisibility("PUBLIC");
+        offeredBook.setStatus("RESERVED");
+
+        when(bookServiceClient.getBook(100L)).thenReturn(requestedBook);
+        when(bookServiceClient.getBook(200L)).thenReturn(offeredBook);
+
+        // act
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> exchangeService.create(request, new UserPrincipal(42L, "alice"))
+        );
+
+        // assert
+        assertEquals("Offered book must be available.", exception.getMessage());
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+    }
+
+    @Test
+    void createShouldRejectDuplicateActiveRequest() {
+        // arrange
+        CreateExchangeRequest request = new CreateExchangeRequest();
+        request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
+
+        BookDto requestedBook = new BookDto();
+        requestedBook.setId(100L);
+        requestedBook.setOwnerId(55L);
+        requestedBook.setVisibility("PUBLIC");
+        requestedBook.setStatus("AVAILABLE");
+
+        BookDto offeredBook = new BookDto();
+        offeredBook.setId(200L);
+        offeredBook.setOwnerId(42L);
+        offeredBook.setVisibility("PUBLIC");
+        offeredBook.setStatus("AVAILABLE");
+
+        when(bookServiceClient.getBook(100L)).thenReturn(requestedBook);
+        when(bookServiceClient.getBook(200L)).thenReturn(offeredBook);
+        when(exchangeRepository.existsByRequesterIdAndRequestedBookIdAndOfferedBookIdAndStatusIn(
+                42L,
+                100L,
+                200L,
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+        )).thenReturn(true);
+
+        // act
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> exchangeService.create(request, new UserPrincipal(42L, "alice"))
+        );
+
+        // assert
+        assertEquals("Duplicate active exchange request already exists.", exception.getMessage());
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+    }
+
+    @Test
+    void acceptShouldLockBothBooksReserveThemAndMarkRequestAccepted() {
         // arrange
         ExchangeRequest request = ExchangeRequest.builder()
                 .id(10L)
                 .requestedBookId(100L)
+                .offeredBookId(200L)
                 .ownerId(55L)
                 .requesterId(42L)
                 .status(ExchangeStatus.PENDING)
                 .message("please accept")
                 .build();
 
-        BookDto reservedBook = new BookDto();
-        reservedBook.setId(100L);
-        reservedBook.setOwnerId(55L);
-        reservedBook.setVisibility("PUBLIC");
-        reservedBook.setStatus("RESERVED");
-
         when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
-        when(exchangeRepository.existsByRequestedBookIdAndStatus(100L, ExchangeStatus.ACCEPTED)).thenReturn(false);
-        when(bookServiceClient.reserve(100L)).thenReturn(reservedBook);
+        when(exchangeRepository.lockAllActiveByBookIds(
+                List.of(100L, 200L),
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+        )).thenReturn(List.of(request));
+        when(exchangeRepository.existsAnotherByStatusAndBookIds(
+                10L,
+                List.of(100L, 200L),
+                ExchangeStatus.ACCEPTED
+        )).thenReturn(false);
         when(exchangeRepository.save(any(ExchangeRequest.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // act
@@ -159,28 +338,39 @@ class ExchangeServiceTest {
         assertNotNull(response);
         assertEquals(ExchangeStatus.ACCEPTED, response.getStatus());
 
-        verify(exchangeRepository).lockAllByRequestedBookIdAndStatuses(
-                100L,
+        verify(exchangeRepository).lockAllActiveByBookIds(
+                List.of(100L, 200L),
                 List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
         );
         verify(bookServiceClient).reserve(100L);
+        verify(bookServiceClient).reserve(200L);
+        verify(exchangeRepository, never()).saveAll(anyList());
         verify(exchangeRepository).save(request);
         assertEquals(ExchangeStatus.ACCEPTED, request.getStatus());
     }
 
     @Test
-    void acceptShouldRejectWhenBookAlreadyHasAcceptedExchange() {
+    void acceptShouldRejectWhenAnyBookAlreadyParticipatesInAcceptedExchange() {
         // arrange
         ExchangeRequest request = ExchangeRequest.builder()
                 .id(10L)
                 .requestedBookId(100L)
+                .offeredBookId(200L)
                 .ownerId(55L)
                 .requesterId(42L)
                 .status(ExchangeStatus.PENDING)
                 .build();
 
         when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
-        when(exchangeRepository.existsByRequestedBookIdAndStatus(100L, ExchangeStatus.ACCEPTED)).thenReturn(true);
+        when(exchangeRepository.existsAnotherByStatusAndBookIds(
+                10L,
+                List.of(100L, 200L),
+                ExchangeStatus.ACCEPTED
+        )).thenReturn(true);
+        when(exchangeRepository.lockAllActiveByBookIds(
+                List.of(100L, 200L),
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+        )).thenReturn(List.of(request));
 
         // act
         IllegalArgumentException exception = assertThrows(
@@ -189,13 +379,57 @@ class ExchangeServiceTest {
         );
 
         // assert
-        assertEquals("This book already has an accepted exchange request.", exception.getMessage());
-        verify(exchangeRepository).lockAllByRequestedBookIdAndStatuses(
-                100L,
+        assertEquals("One of the books already participates in another accepted exchange.", exception.getMessage());
+        verify(exchangeRepository).lockAllActiveByBookIds(
+                List.of(100L, 200L),
                 List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
         );
         verify(bookServiceClient, never()).reserve(anyLong());
         verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+        verify(exchangeRepository, never()).saveAll(anyList());
+    }
+
+    @Test
+    void acceptShouldRollbackFirstReservationWhenSecondReservationFails() {
+        // arrange
+        ExchangeRequest request = ExchangeRequest.builder()
+                .id(10L)
+                .requestedBookId(100L)
+                .offeredBookId(200L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.PENDING)
+                .build();
+
+        when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
+        when(exchangeRepository.existsAnotherByStatusAndBookIds(
+                10L,
+                List.of(100L, 200L),
+                ExchangeStatus.ACCEPTED
+        )).thenReturn(false);
+
+        when(bookServiceClient.reserve(100L)).thenReturn(new BookDto());
+        when(bookServiceClient.reserve(200L)).thenThrow(new IllegalStateException("Offered book cannot be reserved."));
+        when(exchangeRepository.lockAllActiveByBookIds(
+                List.of(100L, 200L),
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+        )).thenReturn(List.of(request));
+
+        // act
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> exchangeService.accept(10L, new UserPrincipal(55L, "owner"))
+        );
+
+        // assert
+        assertEquals("Offered book cannot be reserved.", exception.getMessage());
+
+        verify(bookServiceClient).reserve(100L);
+        verify(bookServiceClient).reserve(200L);
+        verify(bookServiceClient).makeAvailable(100L);
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+        verify(exchangeRepository, never()).saveAll(anyList());
+        assertEquals(ExchangeStatus.PENDING, request.getStatus());
     }
 
     @Test
@@ -291,5 +525,129 @@ class ExchangeServiceTest {
         assertEquals(1, result.getTotalElements());
         assertEquals(20L, result.getContent().get(0).getId());
         assertEquals(42L, result.getContent().get(0).getRequesterId());
+    }
+
+    @Test
+    void completeShouldMarkBothBooksExchangedAndSetCompletedStatus() {
+        // arrange
+        ExchangeRequest request = ExchangeRequest.builder()
+                .id(10L)
+                .requestedBookId(100L)
+                .offeredBookId(200L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.ACCEPTED)
+                .build();
+
+        when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
+        when(exchangeRepository.save(any(ExchangeRequest.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // act
+        ExchangeResponse response = exchangeService.complete(10L, new UserPrincipal(55L, "owner"));
+
+        // assert
+        assertNotNull(response);
+        assertEquals(ExchangeStatus.COMPLETED, response.getStatus());
+
+        verify(bookServiceClient).markExchanged(100L);
+        verify(bookServiceClient).markExchanged(200L);
+        verify(exchangeRepository).save(request);
+        assertEquals(ExchangeStatus.COMPLETED, request.getStatus());
+    }
+
+    @Test
+    void completeShouldNotSaveRequestWhenSecondBookCompletionFails() {
+        // arrange
+        ExchangeRequest request = ExchangeRequest.builder()
+                .id(10L)
+                .requestedBookId(100L)
+                .offeredBookId(200L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.ACCEPTED)
+                .build();
+
+        when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
+        when(bookServiceClient.markExchanged(100L)).thenReturn(new BookDto());
+        when(bookServiceClient.markExchanged(200L))
+                .thenThrow(new IllegalStateException("Offered book cannot be completed."));
+
+        // act
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> exchangeService.complete(10L, new UserPrincipal(55L, "owner"))
+        );
+
+        // assert
+        assertEquals("Offered book cannot be completed.", exception.getMessage());
+
+        verify(bookServiceClient).markExchanged(100L);
+        verify(bookServiceClient).markExchanged(200L);
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+        assertEquals(ExchangeStatus.ACCEPTED, request.getStatus());
+    }
+
+    @Test
+    void cancelShouldReleaseBothBooksForAcceptedRequest() {
+        // arrange
+        ExchangeRequest request = ExchangeRequest.builder()
+                .id(10L)
+                .requestedBookId(100L)
+                .offeredBookId(200L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.ACCEPTED)
+                .build();
+
+        when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
+        when(bookServiceClient.makeAvailable(100L)).thenReturn(new BookDto());
+        when(bookServiceClient.makeAvailable(200L)).thenReturn(new BookDto());
+        when(exchangeRepository.save(any(ExchangeRequest.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // act
+        ExchangeResponse response = exchangeService.cancel(10L, new UserPrincipal(42L, "alice"));
+
+        // assert
+        assertNotNull(response);
+        assertEquals(ExchangeStatus.CANCELLED, response.getStatus());
+
+        verify(bookServiceClient).makeAvailable(100L);
+        verify(bookServiceClient).makeAvailable(200L);
+        verify(exchangeRepository).save(request);
+        assertEquals(ExchangeStatus.CANCELLED, request.getStatus());
+    }
+
+    @Test
+    void cancelShouldRollbackFirstReleasedBookWhenSecondReleaseFails() {
+        // arrange
+        ExchangeRequest request = ExchangeRequest.builder()
+                .id(10L)
+                .requestedBookId(100L)
+                .offeredBookId(200L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.ACCEPTED)
+                .build();
+
+        when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
+        when(bookServiceClient.makeAvailable(100L)).thenReturn(new BookDto());
+        when(bookServiceClient.makeAvailable(200L))
+                .thenThrow(new IllegalStateException("Offered book cannot be released."));
+        when(bookServiceClient.reserve(100L)).thenReturn(new BookDto());
+
+        // act
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> exchangeService.cancel(10L, new UserPrincipal(42L, "alice"))
+        );
+
+        // assert
+        assertEquals("Offered book cannot be released.", exception.getMessage());
+
+        verify(bookServiceClient).makeAvailable(100L);
+        verify(bookServiceClient).makeAvailable(200L);
+        verify(bookServiceClient).reserve(100L);
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+        assertEquals(ExchangeStatus.ACCEPTED, request.getStatus());
     }
 }

@@ -19,6 +19,13 @@ public interface ExchangeRepository extends JpaRepository<ExchangeRequest, Long>
 
     boolean existsByRequestedBookIdAndStatus(Long requestedBookId, ExchangeStatus status);
 
+    boolean existsByRequesterIdAndRequestedBookIdAndOfferedBookIdAndStatusIn(
+            Long requesterId,
+            Long requestedBookId,
+            Long offeredBookId,
+            Collection<ExchangeStatus> statuses
+    );
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from ExchangeRequest r where r.id = :id")
     Optional<ExchangeRequest> findByIdForUpdate(@Param("id") Long id);
@@ -27,4 +34,31 @@ public interface ExchangeRepository extends JpaRepository<ExchangeRequest, Long>
     @Query("select r from ExchangeRequest r where r.requestedBookId = :bookId and r.status in :statuses")
     List<ExchangeRequest> lockAllByRequestedBookIdAndStatuses(@Param("bookId") Long bookId,
                                                               @Param("statuses") Collection<ExchangeStatus> statuses);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+        select r
+        from ExchangeRequest r
+        where r.status in :statuses
+          and (
+                r.requestedBookId in :bookIds
+                or r.offeredBookId in :bookIds
+              )
+        """)
+    List<ExchangeRequest> lockAllActiveByBookIds(@Param("bookIds") Collection<Long> bookIds,
+                                                 @Param("statuses") Collection<ExchangeStatus> statuses);
+
+    @Query("""
+        select count(r) > 0
+        from ExchangeRequest r
+        where r.status = :status
+          and r.id <> :exchangeId
+          and (
+                r.requestedBookId in :bookIds
+                or r.offeredBookId in :bookIds
+              )
+        """)
+    boolean existsAnotherByStatusAndBookIds(@Param("exchangeId") Long exchangeId,
+                                            @Param("bookIds") Collection<Long> bookIds,
+                                            @Param("status") ExchangeStatus status);
 }

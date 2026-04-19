@@ -9,6 +9,9 @@ public class CreateExchangeRequest {
     @NotNull
     private Long requestedBookId;
 
+    @NotNull
+    private Long offeredBookId;
+
     @Size(max = 1000)
     private String message;
 }

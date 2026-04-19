@@ -59,11 +59,13 @@ class ExchangeControllerTest {
         // arrange
         CreateExchangeRequest request = new CreateExchangeRequest();
         request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
         request.setMessage("Let's exchange");
 
         ExchangeResponse response = ExchangeResponse.builder()
                 .id(1L)
                 .requestedBookId(100L)
+                .offeredBookId(200L)
                 .ownerId(55L)
                 .requesterId(42L)
                 .status(ExchangeStatus.PENDING)
@@ -82,6 +84,7 @@ class ExchangeControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.requestedBookId").value(100))
+                .andExpect(jsonPath("$.offeredBookId").value(200))
                 .andExpect(jsonPath("$.requesterId").value(42))
                 .andExpect(jsonPath("$.status").value("PENDING"));
 
@@ -89,7 +92,7 @@ class ExchangeControllerTest {
     }
 
     @Test
-    void createShouldReturnBadRequestWhenRequestedBookIdIsMissing() throws Exception {
+    void createShouldReturnBadRequestWhenRequiredBookIdsAreMissing() throws Exception {
         // arrange
         String requestBody = """
                 {

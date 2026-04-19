@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 @Table(name = "exchange_requests",
         indexes = {
                 @Index(name = "idx_ex_req_requested_book", columnList = "requested_book_id"),
+                @Index(name = "idx_ex_req_offered_book", columnList = "offered_book_id"),
                 @Index(name = "idx_ex_req_owner", columnList = "owner_id"),
                 @Index(name = "idx_ex_req_requester", columnList = "requester_id")
         })
@@ -26,11 +27,14 @@ public class ExchangeRequest {
     @Column(name = "requested_book_id", nullable = false)
     private Long requestedBookId;
 
+    @Column(name = "offered_book_id")
+    private Long offeredBookId;
+
     @Column(name = "owner_id", nullable = false)
-    private Long ownerId; // владелец книги
+    private Long ownerId; // владелец запрашиваемой книги
 
     @Column(name = "requester_id", nullable = false)
-    private Long requesterId; // кто просит
+    private Long requesterId; // кто инициировал обмен
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)

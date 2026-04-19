@@ -1,6 +1,7 @@
 package com.secondshelf.exchangeservice.service;
 
 import com.secondshelf.exchangeservice.client.BookServiceClient;
+import com.secondshelf.exchangeservice.client.dto.BookDto;
 import com.secondshelf.exchangeservice.dto.CreateExchangeRequest;
 import com.secondshelf.exchangeservice.dto.ExchangeResponse;
 import com.secondshelf.exchangeservice.entity.ExchangeRequest;
@@ -13,6 +14,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -26,22 +28,30 @@ public class ExchangeService {
     public ExchangeResponse create(CreateExchangeRequest req, UserPrincipal principal) {
         Long requesterId = requireUserId(principal);
 
-        var book = bookServiceClient.getBook(req.getRequestedBookId());
+        if (req.getRequestedBookId().equals(req.getOfferedBookId())) {
+            throw new IllegalArgumentException("Requested book and offered book must be different.");
+        }
 
-        if (book.getOwnerId().equals(requesterId)) {
-            throw new IllegalArgumentException("You cannot request exchange for your own book.");
-        }
-        if (!"PUBLIC".equals(book.getVisibility())) {
-            throw new IllegalArgumentException("Book is not public.");
-        }
-        if (!"AVAILABLE".equals(book.getStatus())) {
-            throw new IllegalArgumentException("Book is not available.");
+        BookDto requestedBook = bookServiceClient.getBook(req.getRequestedBookId());
+        BookDto offeredBook = bookServiceClient.getBook(req.getOfferedBookId());
+
+        validateRequestedBook(requestedBook, requesterId);
+        validateOfferedBook(offeredBook, requesterId);
+
+        if (exchangeRepository.existsByRequesterIdAndRequestedBookIdAndOfferedBookIdAndStatusIn(
+                requesterId,
+                req.getRequestedBookId(),
+                req.getOfferedBookId(),
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+        )) {
+            throw new IllegalArgumentException("Duplicate active exchange request already exists.");
         }
 
         ExchangeRequest saved = exchangeRepository.save(
                 ExchangeRequest.builder()
                         .requestedBookId(req.getRequestedBookId())
-                        .ownerId(book.getOwnerId())
+                        .offeredBookId(req.getOfferedBookId())
+                        .ownerId(requestedBook.getOwnerId())
                         .requesterId(requesterId)
                         .status(ExchangeStatus.PENDING)
                         .message(req.getMessage())
@@ -75,20 +85,25 @@ public class ExchangeService {
             throw new IllegalArgumentException("Only PENDING request can be accepted.");
         }
 
-        // Лочим все pending/accepted по этой книге, чтобы не приняли дважды одновременно
-        exchangeRepository.lockAllByRequestedBookIdAndStatuses(
-                req.getRequestedBookId(),
+        List<Long> bookIds = List.of(req.getRequestedBookId(), req.getOfferedBookId());
+
+        List<ExchangeRequest> activeRequests = exchangeRepository.lockAllActiveByBookIds(
+                bookIds,
                 List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
         );
 
-        if (exchangeRepository.existsByRequestedBookIdAndStatus(req.getRequestedBookId(), ExchangeStatus.ACCEPTED)) {
-            throw new IllegalArgumentException("This book already has an accepted exchange request.");
+        if (exchangeRepository.existsAnotherByStatusAndBookIds(
+                req.getId(),
+                bookIds,
+                ExchangeStatus.ACCEPTED
+        )) {
+            throw new IllegalArgumentException("One of the books already participates in another accepted exchange.");
         }
 
-        // reserve книгу в book-service (внутренним токеном)
-        bookServiceClient.reserve(req.getRequestedBookId());
+        reserveBothBooks(req);
 
         req.setStatus(ExchangeStatus.ACCEPTED);
+        declineConflictingPendingRequests(req.getId(), activeRequests);
 
         return toResponse(exchangeRepository.save(req));
     }
@@ -117,11 +132,16 @@ public class ExchangeService {
         if (!me.equals(req.getRequesterId())) {
             throw new IllegalArgumentException("Only requester can cancel.");
         }
-        if (req.getStatus() != ExchangeStatus.PENDING) {
-            throw new IllegalArgumentException("Only PENDING request can be cancelled.");
+        if (req.getStatus() != ExchangeStatus.PENDING && req.getStatus() != ExchangeStatus.ACCEPTED) {
+            throw new IllegalArgumentException("Only PENDING or ACCEPTED request can be canceled.");
+        }
+
+        if (req.getStatus() == ExchangeStatus.ACCEPTED) {
+            releaseBothBooks(req);
         }
 
         req.setStatus(ExchangeStatus.CANCELLED);
+
         return toResponse(exchangeRepository.save(req));
     }
 
@@ -138,10 +158,105 @@ public class ExchangeService {
             throw new IllegalArgumentException("Only ACCEPTED request can be completed.");
         }
 
-        bookServiceClient.markExchanged(req.getRequestedBookId());
+        completeBothBooks(req);
         req.setStatus(ExchangeStatus.COMPLETED);
 
         return toResponse(exchangeRepository.save(req));
+    }
+
+    private void reserveBothBooks(ExchangeRequest req) {
+        List<Long> reservedBookIds = new ArrayList<>();
+
+        try {
+            bookServiceClient.reserve(req.getRequestedBookId());
+            reservedBookIds.add(req.getRequestedBookId());
+
+            bookServiceClient.reserve(req.getOfferedBookId());
+            reservedBookIds.add(req.getOfferedBookId());
+        } catch (RuntimeException e) {
+            rollbackReservedBooks(reservedBookIds);
+            throw e;
+        }
+    }
+
+    private void rollbackReservedBooks(List<Long> reservedBookIds) {
+        for (int i = reservedBookIds.size() - 1; i >= 0; i--) {
+            try {
+                bookServiceClient.makeAvailable(reservedBookIds.get(i));
+            } catch (RuntimeException rollbackException) {
+                // best-effort compensation:
+                // exchange request is not accepted, but manual investigation may be required
+            }
+        }
+    }
+
+    private void declineConflictingPendingRequests(Long acceptedExchangeId, List<ExchangeRequest> activeRequests) {
+        List<ExchangeRequest> conflictingPendingRequests = activeRequests.stream()
+                .filter(r -> !r.getId().equals(acceptedExchangeId))
+                .filter(r -> r.getStatus() == ExchangeStatus.PENDING)
+                .toList();
+
+        if (conflictingPendingRequests.isEmpty()) {
+            return;
+        }
+
+        conflictingPendingRequests.forEach(r -> r.setStatus(ExchangeStatus.DECLINED));
+        exchangeRepository.saveAll(conflictingPendingRequests);
+    }
+
+    private void completeBothBooks(ExchangeRequest req) {
+        bookServiceClient.markExchanged(req.getRequestedBookId());
+        bookServiceClient.markExchanged(req.getOfferedBookId());
+    }
+
+    private void releaseBothBooks(ExchangeRequest req) {
+        List<Long> releasedBookIds = new ArrayList<>();
+
+        try {
+            bookServiceClient.makeAvailable(req.getRequestedBookId());
+            releasedBookIds.add(req.getRequestedBookId());
+
+            bookServiceClient.makeAvailable(req.getOfferedBookId());
+            releasedBookIds.add(req.getOfferedBookId());
+        } catch (RuntimeException e) {
+            rollbackReleasedBooks(releasedBookIds);
+            throw e;
+        }
+    }
+
+    private void rollbackReleasedBooks(List<Long> releasedBookIds) {
+        for (int i = releasedBookIds.size() - 1; i >= 0; i--) {
+            try {
+                bookServiceClient.reserve(releasedBookIds.get(i));
+            } catch (RuntimeException rollbackException) {
+                // best-effort compensation:
+                // exchange request is not canceled, but manual investigation may be required
+            }
+        }
+    }
+
+    private void validateRequestedBook(BookDto requestedBook, Long requesterId) {
+        if (requestedBook.getOwnerId().equals(requesterId)) {
+            throw new IllegalArgumentException("You cannot request exchange for your own book.");
+        }
+        if (!"PUBLIC".equals(requestedBook.getVisibility())) {
+            throw new IllegalArgumentException("Requested book must be public.");
+        }
+        if (!"AVAILABLE".equals(requestedBook.getStatus())) {
+            throw new IllegalArgumentException("Requested book must be available.");
+        }
+    }
+
+    private void validateOfferedBook(BookDto offeredBook, Long requesterId) {
+        if (!requesterId.equals(offeredBook.getOwnerId())) {
+            throw new IllegalArgumentException("Offered book must belong to requester.");
+        }
+        if (!"PUBLIC".equals(offeredBook.getVisibility())) {
+            throw new IllegalArgumentException("Offered book must be public.");
+        }
+        if (!"AVAILABLE".equals(offeredBook.getStatus())) {
+            throw new IllegalArgumentException("Offered book must be available.");
+        }
     }
 
     private Long requireUserId(UserPrincipal principal) {
@@ -155,6 +270,7 @@ public class ExchangeService {
         return ExchangeResponse.builder()
                 .id(r.getId())
                 .requestedBookId(r.getRequestedBookId())
+                .offeredBookId(r.getOfferedBookId())
                 .ownerId(r.getOwnerId())
                 .requesterId(r.getRequesterId())
                 .status(r.getStatus())
