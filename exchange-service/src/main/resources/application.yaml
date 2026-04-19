@@ -10,6 +10,16 @@ spring:
     username: ${DB_USERNAME:second_shelf}
     password: ${DB_PASSWORD:secret}
 
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+
   jpa:
     hibernate:
       ddl-auto: validate
@@ -24,6 +34,11 @@ internal:
 
 book-service:
   base-url: ${BOOK_SERVICE_BASE_URL:http://localhost:8082}
+
+exchange:
+  outbox:
+    rabbitmq:
+      exchange: ${EXCHANGE_OUTBOX_RABBIT_EXCHANGE:exchange.events}
 
 jwt:
   secret: ${JWT_SECRET:change_this_secret_to_something_long_and_random_1234567890_change_me}
