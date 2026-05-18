@@ -16,6 +16,20 @@ services:
       timeout: 3s
       retries: 20
 
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
   user-service:
     build:
       context: .
@@ -97,10 +111,17 @@ services:
       INTERNAL_TOKEN: ${INTERNAL_TOKEN}
       JWT_SECRET: ${JWT_SECRET}
       BOOK_SERVICE_BASE_URL: http://book-service:8082
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      EXCHANGE_OUTBOX_RABBIT_EXCHANGE: exchange.events
     depends_on:
       postgres:
         condition: service_healthy
       book-service:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
   notification-service:
@@ -108,17 +129,26 @@ services:
       context: .
       dockerfile: notification-service/Dockerfile
     ports:
-      - "${NOTIFICATION_SERVICE_PORT}:8084"
+      - "${NOTIFICATION_SERVICE_PORT:-8084}:8084"
     environment:
       NOTIFICATION_SERVICE_PORT: 8084
       DB_HOST: postgres
       POSTGRES_PORT: 5432
       DB_USERNAME: ${DB_USERNAME}
       DB_PASSWORD: ${DB_PASSWORD}
-      NOTIFICATION_DB_NAME: ${NOTIFICATION_DB_NAME}
+      NOTIFICATION_DB_NAME: ${NOTIFICATION_DB_NAME:-notification_db}
       JWT_SECRET: ${JWT_SECRET}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      NOTIFICATION_RABBIT_EXCHANGE: exchange.events
+      NOTIFICATION_RABBIT_QUEUE: notification.exchange-events
+      NOTIFICATION_RABBIT_ROUTING_KEY_PATTERN: exchange.request.*
     depends_on:
       postgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
 volumes:
