@@ -2,12 +2,11 @@ package com.secondshelf.exchangeservice.outbox;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.secondshelf.exchangeservice.entity.ExchangeRequest;
 import com.secondshelf.exchangeservice.entity.ExchangeStatus;
 import com.secondshelf.exchangeservice.entity.OutboxEvent;
 import com.secondshelf.exchangeservice.entity.OutboxEventStatus;
 import org.junit.jupiter.api.Test;
-
-import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -22,35 +21,39 @@ class ExchangeOutboxEventFactoryTest {
     @Test
     void createShouldPreparePendingOutboxEventForExchangeAggregate() throws Exception {
         // arrange
-        ExchangeEventPayload payload = ExchangeEventPayload.builder()
-                .exchangeId(42L)
+        ExchangeRequest exchangeRequest = ExchangeRequest.builder()
+                .id(42L)
                 .requestedBookId(100L)
                 .offeredBookId(200L)
                 .ownerId(55L)
                 .requesterId(77L)
                 .status(ExchangeStatus.ACCEPTED)
-                .occurredAt(LocalDateTime.of(2026, 4, 19, 20, 0))
                 .build();
 
         // act
-        OutboxEvent event = factory.create(ExchangeEventType.EXCHANGE_STATUS_CHANGED, payload);
+        OutboxEvent event = factory.create(ExchangeEventType.EXCHANGE_REQUEST_ACCEPTED, exchangeRequest);
 
         // assert
         assertNull(event.getId());
         assertNotNull(event.getEventId());
-        assertEquals("EXCHANGE", event.getAggregateType());
+        assertEquals("EXCHANGE_REQUEST", event.getAggregateType());
         assertEquals("42", event.getAggregateId());
-        assertEquals("EXCHANGE_STATUS_CHANGED", event.getEventType());
+        assertEquals("exchange.request.accepted", event.getEventType());
         assertEquals(OutboxEventStatus.PENDING, event.getStatus());
         assertEquals(0, event.getAttemptsCount());
         assertNull(event.getPublishedAt());
-        assertNull(event.getCreatedAt());
+        assertNotNull(event.getCreatedAt());
 
         JsonNode payloadJson = objectMapper.readTree(event.getPayload());
-        assertEquals(42L, payloadJson.get("exchangeId").asLong());
+        assertEquals(event.getEventId().toString(), payloadJson.get("eventId").asText());
+        assertEquals("exchange.request.accepted", payloadJson.get("eventType").asText());
+        assertEquals(42L, payloadJson.get("exchangeRequestId").asLong());
         assertEquals(100L, payloadJson.get("requestedBookId").asLong());
         assertEquals(200L, payloadJson.get("offeredBookId").asLong());
+        assertEquals(77L, payloadJson.get("requesterId").asLong());
+        assertEquals(55L, payloadJson.get("ownerId").asLong());
         assertEquals("ACCEPTED", payloadJson.get("status").asText());
+        assertTrue(payloadJson.hasNonNull("occurredAt"));
     }
 
     @Test

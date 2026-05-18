@@ -5,15 +5,18 @@ import lombok.Builder;
 import lombok.Value;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Value
 @Builder
 public class ExchangeEventPayload {
-    Long exchangeId;
+    UUID eventId;
+    String eventType;
+    LocalDateTime occurredAt;
+    Long exchangeRequestId;
+    Long requesterId;
+    Long ownerId;
     Long requestedBookId;
     Long offeredBookId;
-    Long ownerId;
-    Long requesterId;
     ExchangeStatus status;
-    LocalDateTime occurredAt;
 }

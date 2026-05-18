@@ -10,12 +10,14 @@ import com.secondshelf.exchangeservice.exception.ExchangeBadRequestException;
 import com.secondshelf.exchangeservice.exception.ExchangeConflictException;
 import com.secondshelf.exchangeservice.exception.ExchangeForbiddenException;
 import com.secondshelf.exchangeservice.exception.ExchangeNotFoundException;
+import com.secondshelf.exchangeservice.outbox.ExchangeEventType;
+import com.secondshelf.exchangeservice.outbox.ExchangeOutboxService;
 import com.secondshelf.exchangeservice.repository.ExchangeRepository;
 import com.secondshelf.exchangeservice.security.UserPrincipal;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.HttpClientErrorException;
@@ -30,6 +32,7 @@ public class ExchangeService {
 
     private final ExchangeRepository exchangeRepository;
     private final BookServiceClient bookServiceClient;
+    private final ExchangeOutboxService exchangeOutboxService;
 
     public ExchangeResponse create(CreateExchangeRequest req, UserPrincipal principal) {
         Long requesterId = requireUserId(principal);
@@ -69,6 +72,8 @@ public class ExchangeService {
                         .message(req.getMessage())
                         .build()
         );
+
+        exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_CREATED, saved);
 
         return toResponse(saved);
     }
@@ -120,9 +125,15 @@ public class ExchangeService {
         reserveBothBooks(req);
 
         req.setStatus(ExchangeStatus.ACCEPTED);
-        declineConflictingPendingRequests(req.getId(), activeRequests);
+        List<ExchangeRequest> declinedRequests = declineConflictingPendingRequests(req.getId(), activeRequests);
+        ExchangeRequest saved = exchangeRepository.save(req);
 
-        return toResponse(exchangeRepository.save(req));
+        exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_ACCEPTED, saved);
+        declinedRequests.forEach(declinedRequest ->
+                exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_DECLINED, declinedRequest)
+        );
+
+        return toResponse(saved);
     }
 
     public ExchangeResponse decline(Long exchangeId, UserPrincipal principal) {
@@ -140,7 +151,10 @@ public class ExchangeService {
         }
 
         req.setStatus(ExchangeStatus.DECLINED);
-        return toResponse(exchangeRepository.save(req));
+        ExchangeRequest saved = exchangeRepository.save(req);
+        exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_DECLINED, saved);
+
+        return toResponse(saved);
     }
 
     public ExchangeResponse cancel(Long exchangeId, UserPrincipal principal) {
@@ -162,8 +176,10 @@ public class ExchangeService {
         }
 
         req.setStatus(ExchangeStatus.CANCELLED);
+        ExchangeRequest saved = exchangeRepository.save(req);
+        exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_CANCELLED, saved);
 
-        return toResponse(exchangeRepository.save(req));
+        return toResponse(saved);
     }
 
     public ExchangeResponse complete(Long exchangeId, UserPrincipal principal) {
@@ -183,8 +199,10 @@ public class ExchangeService {
 
         completeBothBooks(req);
         req.setStatus(ExchangeStatus.COMPLETED);
+        ExchangeRequest saved = exchangeRepository.save(req);
+        exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_COMPLETED, saved);
 
-        return toResponse(exchangeRepository.save(req));
+        return toResponse(saved);
     }
 
     private void reserveBothBooks(ExchangeRequest req) {
@@ -213,18 +231,18 @@ public class ExchangeService {
         }
     }
 
-    private void declineConflictingPendingRequests(Long acceptedExchangeId, List<ExchangeRequest> activeRequests) {
+    private List<ExchangeRequest> declineConflictingPendingRequests(Long acceptedExchangeId, List<ExchangeRequest> activeRequests) {
         List<ExchangeRequest> conflictingPendingRequests = activeRequests.stream()
                 .filter(r -> !r.getId().equals(acceptedExchangeId))
                 .filter(r -> r.getStatus() == ExchangeStatus.PENDING)
                 .toList();
 
         if (conflictingPendingRequests.isEmpty()) {
-            return;
+            return List.of();
         }
 
         conflictingPendingRequests.forEach(r -> r.setStatus(ExchangeStatus.DECLINED));
-        exchangeRepository.saveAll(conflictingPendingRequests);
+        return exchangeRepository.saveAll(conflictingPendingRequests);
     }
 
     private void completeBothBooks(ExchangeRequest req) {

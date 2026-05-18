@@ -39,6 +39,9 @@ exchange:
   outbox:
     rabbitmq:
       exchange: ${EXCHANGE_OUTBOX_RABBIT_EXCHANGE:exchange.events}
+    publisher:
+      enabled: ${EXCHANGE_OUTBOX_PUBLISHER_ENABLED:true}
+      fixed-delay-ms: ${EXCHANGE_OUTBOX_PUBLISHER_FIXED_DELAY_MS:5000}
 
 jwt:
   secret: ${JWT_SECRET:change_this_secret_to_something_long_and_random_1234567890_change_me}

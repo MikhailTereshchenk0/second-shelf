@@ -6,7 +6,11 @@ import lombok.RequiredArgsConstructor;
 @Getter
 @RequiredArgsConstructor
 public enum ExchangeEventType {
-    EXCHANGE_STATUS_CHANGED("exchange.status.changed");
+    EXCHANGE_REQUEST_CREATED("exchange.request.created"),
+    EXCHANGE_REQUEST_ACCEPTED("exchange.request.accepted"),
+    EXCHANGE_REQUEST_DECLINED("exchange.request.declined"),
+    EXCHANGE_REQUEST_CANCELLED("exchange.request.cancelled"),
+    EXCHANGE_REQUEST_COMPLETED("exchange.request.completed");
 
-    private final String routingKey;
+    private final String value;
 }
