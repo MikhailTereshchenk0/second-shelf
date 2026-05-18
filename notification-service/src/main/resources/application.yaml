@@ -1,0 +1,68 @@
+server:
+  port: ${NOTIFICATION_SERVICE_PORT:8084}
+
+spring:
+  application:
+    name: notification-service
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${POSTGRES_PORT:5432}/${NOTIFICATION_DB_NAME:notification_db}
+    username: ${DB_USERNAME:second_shelf}
+    password: ${DB_PASSWORD:secret}
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    show-sql: false
+
+  liquibase:
+    change-log: classpath:/db/changelog/db.changelog-master.yaml
+
+notification:
+  rabbitmq:
+    exchange: ${NOTIFICATION_RABBIT_EXCHANGE:exchange.events}
+    queue: ${NOTIFICATION_RABBIT_QUEUE:notification.exchange-events}
+    routing-key-pattern: ${NOTIFICATION_RABBIT_ROUTING_KEY_PATTERN:exchange.request.*}
+
+jwt:
+  secret: ${JWT_SECRET:change_this_secret_to_something_long_and_random_1234567890_change_me}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  info:
+    env:
+      enabled: true
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+    rabbit:
+      enabled: false
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
+info:
+  app:
+    name: notification-service
+    description: Notification center service for Second Shelf
+    version: v1

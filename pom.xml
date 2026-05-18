@@ -23,6 +23,7 @@
         <module>user-service</module>
         <module>book-service</module>
         <module>exchange-service</module>
+        <module>notification-service</module>
     </modules>
 
     <properties>
