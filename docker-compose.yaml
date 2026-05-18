@@ -103,5 +103,23 @@ services:
       book-service:
         condition: service_healthy
 
+  notification-service:
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
+    ports:
+      - "${NOTIFICATION_SERVICE_PORT}:8084"
+    environment:
+      NOTIFICATION_SERVICE_PORT: 8084
+      DB_HOST: postgres
+      POSTGRES_PORT: 5432
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      NOTIFICATION_DB_NAME: ${NOTIFICATION_DB_NAME}
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:

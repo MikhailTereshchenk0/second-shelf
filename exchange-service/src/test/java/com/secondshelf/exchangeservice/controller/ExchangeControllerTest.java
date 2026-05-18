@@ -5,6 +5,11 @@ import com.secondshelf.exchangeservice.config.SecurityConfig;
 import com.secondshelf.exchangeservice.dto.CreateExchangeRequest;
 import com.secondshelf.exchangeservice.dto.ExchangeResponse;
 import com.secondshelf.exchangeservice.entity.ExchangeStatus;
+import com.secondshelf.exchangeservice.exception.ExchangeBadRequestException;
+import com.secondshelf.exchangeservice.exception.ExchangeConflictException;
+import com.secondshelf.exchangeservice.exception.ExchangeForbiddenException;
+import com.secondshelf.exchangeservice.exception.ExchangeNotFoundException;
+import com.secondshelf.exchangeservice.exception.handler.GlobalExceptionHandler;
 import com.secondshelf.exchangeservice.security.JwtAuthenticationFilter;
 import com.secondshelf.exchangeservice.security.UserPrincipal;
 import com.secondshelf.exchangeservice.service.ExchangeService;
@@ -37,7 +42,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(ExchangeController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class})
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, GlobalExceptionHandler.class})
 @TestPropertySource(properties = {
         "jwt.secret=test-secret-test-secret-test-secret-12345678"
 })
@@ -105,7 +110,59 @@ class ExchangeControllerTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(42L, "alice", List.of("ROLE_USER"))))
                         .contentType(APPLICATION_JSON)
                         .content(requestBody))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message").value("Request validation failed"))
+                .andExpect(jsonPath("$.details.requestedBookId").value("must not be null"))
+                .andExpect(jsonPath("$.details.offeredBookId").value("must not be null"));
+    }
+
+    @Test
+    void createShouldReturnDomainBadRequestContract() throws Exception {
+        // arrange
+        CreateExchangeRequest request = new CreateExchangeRequest();
+        request.setRequestedBookId(100L);
+        request.setOfferedBookId(100L);
+
+        when(exchangeService.create(any(CreateExchangeRequest.class), any(UserPrincipal.class)))
+                .thenThrow(new ExchangeBadRequestException(
+                        "INVALID_EXCHANGE_BOOK_SELECTION",
+                        "Requested book and offered book must be different."
+                ));
+
+        // act + assert
+        mockMvc.perform(post("/api/v1/exchanges")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(42L, "alice", List.of("ROLE_USER"))))
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_EXCHANGE_BOOK_SELECTION"))
+                .andExpect(jsonPath("$.message").value("Requested book and offered book must be different."))
+                .andExpect(jsonPath("$.timestamp").exists());
+    }
+
+    @Test
+    void createShouldReturnNotFoundContractWhenRequestedBookDoesNotExist() throws Exception {
+        // arrange
+        CreateExchangeRequest request = new CreateExchangeRequest();
+        request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
+
+        when(exchangeService.create(any(CreateExchangeRequest.class), any(UserPrincipal.class)))
+                .thenThrow(new ExchangeNotFoundException(
+                        "REQUESTED_BOOK_NOT_FOUND",
+                        "Requested book not found."
+                ));
+
+        // act + assert
+        mockMvc.perform(post("/api/v1/exchanges")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(42L, "alice", List.of("ROLE_USER"))))
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("REQUESTED_BOOK_NOT_FOUND"))
+                .andExpect(jsonPath("$.message").value("Requested book not found."))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -188,6 +245,21 @@ class ExchangeControllerTest {
     }
 
     @Test
+    void acceptShouldReturnForbiddenContractWhenActionIsPerformedByAnotherUser() throws Exception {
+        // arrange
+        when(exchangeService.accept(10L, new UserPrincipal(55L, "owner")))
+                .thenThrow(new ExchangeForbiddenException("ONLY_OWNER_CAN_ACCEPT", "Only owner can accept."));
+
+        // act + assert
+        mockMvc.perform(post("/api/v1/exchanges/10/accept")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(55L, "owner", List.of("ROLE_USER")))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ONLY_OWNER_CAN_ACCEPT"))
+                .andExpect(jsonPath("$.message").value("Only owner can accept."))
+                .andExpect(jsonPath("$.timestamp").exists());
+    }
+
+    @Test
     void cancelShouldPassAuthenticatedPrincipalFromJwt() throws Exception {
         // arrange
         ExchangeResponse response = ExchangeResponse.builder()
@@ -235,6 +307,24 @@ class ExchangeControllerTest {
                 .andExpect(jsonPath("$.status").value("COMPLETED"));
 
         verify(exchangeService).complete(12L, new UserPrincipal(55L, "owner"));
+    }
+
+    @Test
+    void completeShouldReturnConflictContractForInvalidStatusTransition() throws Exception {
+        // arrange
+        when(exchangeService.complete(12L, new UserPrincipal(55L, "owner")))
+                .thenThrow(new ExchangeConflictException(
+                        "INVALID_EXCHANGE_STATUS_TRANSITION",
+                        "Only ACCEPTED request can be completed."
+                ));
+
+        // act + assert
+        mockMvc.perform(post("/api/v1/exchanges/12/complete")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(55L, "owner", List.of("ROLE_USER")))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_EXCHANGE_STATUS_TRANSITION"))
+                .andExpect(jsonPath("$.message").value("Only ACCEPTED request can be completed."))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test

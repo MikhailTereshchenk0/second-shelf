@@ -2,3 +2,4 @@ CREATE DATABASE users_db;
 CREATE DATABASE auth_db;
 CREATE DATABASE books_db;
 CREATE DATABASE exchange_db;
+CREATE DATABASE notification_db;

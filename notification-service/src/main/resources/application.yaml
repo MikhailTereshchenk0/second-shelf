@@ -1,12 +1,12 @@
 server:
-  port: ${EXCHANGE_SERVICE_PORT:8083}
+  port: ${NOTIFICATION_SERVICE_PORT:8084}
 
 spring:
   application:
-    name: exchange-service
+    name: notification-service
 
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${POSTGRES_PORT:5432}/${EXCHANGE_DB_NAME:exchange_db}
+    url: jdbc:postgresql://${DB_HOST:localhost}:${POSTGRES_PORT:5432}/${NOTIFICATION_DB_NAME:notification_db}
     username: ${DB_USERNAME:second_shelf}
     password: ${DB_PASSWORD:secret}
 
@@ -15,10 +15,6 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USERNAME:guest}
     password: ${RABBITMQ_PASSWORD:guest}
-    publisher-confirm-type: correlated
-    publisher-returns: true
-    template:
-      mandatory: true
 
   jpa:
     hibernate:
@@ -29,19 +25,11 @@ spring:
   liquibase:
     change-log: classpath:/db/changelog/db.changelog-master.yaml
 
-internal:
-  token: ${INTERNAL_TOKEN:internal-secret-123}
-
-book-service:
-  base-url: ${BOOK_SERVICE_BASE_URL:http://localhost:8082}
-
-exchange:
-  outbox:
-    rabbitmq:
-      exchange: ${EXCHANGE_OUTBOX_RABBIT_EXCHANGE:exchange.events}
-    publisher:
-      enabled: ${EXCHANGE_OUTBOX_PUBLISHER_ENABLED:true}
-      fixed-delay-ms: ${EXCHANGE_OUTBOX_PUBLISHER_FIXED_DELAY_MS:5000}
+notification:
+  rabbitmq:
+    exchange: ${NOTIFICATION_RABBIT_EXCHANGE:exchange.events}
+    queue: ${NOTIFICATION_RABBIT_QUEUE:notification.exchange-events}
+    routing-key-pattern: ${NOTIFICATION_RABBIT_ROUTING_KEY_PATTERN:exchange.request.*}
 
 jwt:
   secret: ${JWT_SECRET:change_this_secret_to_something_long_and_random_1234567890_change_me}
@@ -56,14 +44,25 @@ management:
       probes:
         enabled: true
       show-details: never
+  info:
+    env:
+      enabled: true
   health:
     livenessstate:
       enabled: true
     readinessstate:
       enabled: true
+    rabbit:
+      enabled: false
 
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
     operations-sorter: method
     tags-sorter: alpha
+
+info:
+  app:
+    name: notification-service
+    description: Notification center service for Second Shelf
+    version: v1
