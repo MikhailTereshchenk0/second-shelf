@@ -5,6 +5,7 @@ import com.secondshelf.notificationservice.entity.NotificationStatus;
 import com.secondshelf.notificationservice.entity.NotificationType;
 import com.secondshelf.notificationservice.entity.ProcessedEvent;
 import com.secondshelf.notificationservice.exception.NotificationBadRequestException;
+import com.secondshelf.notificationservice.observability.NotificationAsyncMetrics;
 import com.secondshelf.notificationservice.repository.NotificationRepository;
 import com.secondshelf.notificationservice.repository.ProcessedEventRepository;
 import lombok.RequiredArgsConstructor;
@@ -26,30 +27,39 @@ public class ExchangeEventNotificationService {
 
     private final NotificationRepository notificationRepository;
     private final ProcessedEventRepository processedEventRepository;
+    private final NotificationAsyncMetrics notificationAsyncMetrics;
 
     @Transactional
     public void process(ExchangeEventPayload eventPayload) {
-        validate(eventPayload);
-        ExchangeEventType eventType = parseEventType(eventPayload.getEventType());
+        try {
+            validate(eventPayload);
+            ExchangeEventType eventType = parseEventType(eventPayload.getEventType());
 
-        if (processedEventRepository.existsById(eventPayload.getEventId())) {
-            log.info("Skipping already processed exchange event eventId={}", eventPayload.getEventId());
-            return;
+            if (processedEventRepository.existsById(eventPayload.getEventId())) {
+                log.info("Skipping duplicate exchange event eventId={}, eventType={}", eventPayload.getEventId(), eventPayload.getEventType());
+                notificationAsyncMetrics.incrementIgnored(eventPayload.getEventType(), "duplicate");
+                return;
+            }
+
+            if (!reserveProcessedEvent(eventPayload.getEventId(), eventPayload.getEventType())) {
+                notificationAsyncMetrics.incrementIgnored(eventPayload.getEventType(), "duplicate");
+                return;
+            }
+
+            List<Notification> notifications = buildNotifications(eventPayload, eventType);
+            notificationRepository.saveAll(notifications);
+            notificationAsyncMetrics.incrementProcessed(eventPayload.getEventType());
+
+            log.info(
+                    "Created {} notification(s) for exchange event eventId={}, eventType={}",
+                    notifications.size(),
+                    eventPayload.getEventId(),
+                    eventPayload.getEventType()
+            );
+        } catch (NotificationBadRequestException ex) {
+            notificationAsyncMetrics.incrementIgnored(resolveEventType(eventPayload), "invalid");
+            throw ex;
         }
-
-        if (!reserveProcessedEvent(eventPayload.getEventId(), eventPayload.getEventType())) {
-            return;
-        }
-
-        List<Notification> notifications = buildNotifications(eventPayload, eventType);
-        notificationRepository.saveAll(notifications);
-
-        log.info(
-                "Persisted {} notification(s) for exchange event eventId={}, eventType={}",
-                notifications.size(),
-                eventPayload.getEventId(),
-                eventPayload.getEventType()
-        );
     }
 
     private boolean reserveProcessedEvent(UUID eventId, String eventType) {
@@ -60,7 +70,7 @@ public class ExchangeEventNotificationService {
                     .build());
             return true;
         } catch (DataIntegrityViolationException ex) {
-            log.info("Skipping duplicate exchange event eventId={}", eventId);
+            log.info("Skipping duplicate exchange event eventId={}, eventType={}", eventId, eventType);
             return false;
         }
     }
@@ -211,5 +221,9 @@ public class ExchangeEventNotificationService {
                     "Offered book id must not be null."
             );
         }
+    }
+
+    private String resolveEventType(ExchangeEventPayload eventPayload) {
+        return eventPayload != null ? eventPayload.getEventType() : "unknown";
     }
 }

@@ -16,6 +16,7 @@ import java.util.UUID;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class ExchangeEventPayload {
     private UUID eventId;
+    private String correlationId;
     private String eventType;
     private LocalDateTime occurredAt;
     private Long exchangeRequestId;

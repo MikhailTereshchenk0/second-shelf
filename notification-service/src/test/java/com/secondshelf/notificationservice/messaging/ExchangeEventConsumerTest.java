@@ -1,11 +1,13 @@
 package com.secondshelf.notificationservice.messaging;
 
 import com.secondshelf.notificationservice.exception.NotificationBadRequestException;
+import com.secondshelf.notificationservice.observability.CorrelationId;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.MDC;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 
 import java.time.LocalDateTime;
@@ -13,8 +15,10 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 
@@ -33,10 +37,26 @@ class ExchangeEventConsumerTest {
         ExchangeEventPayload payload = sampleEvent();
 
         // act
-        exchangeEventConsumer.consumeExchangeEvent(payload);
+        exchangeEventConsumer.consumeExchangeEvent(payload, "corr-consumer-header-123");
 
         // assert
         verify(exchangeEventNotificationService).process(payload);
+    }
+
+    @Test
+    void consumeExchangeEventShouldPopulateMdcFromHeaderAndClearAfterwards() {
+        // arrange
+        ExchangeEventPayload payload = sampleEvent();
+        doAnswer(invocation -> {
+            assertEquals("corr-consumer-header-123", MDC.get(CorrelationId.MDC_KEY));
+            return null;
+        }).when(exchangeEventNotificationService).process(payload);
+
+        // act
+        exchangeEventConsumer.consumeExchangeEvent(payload, "corr-consumer-header-123");
+
+        // assert
+        assertNull(MDC.get(CorrelationId.MDC_KEY));
     }
 
     @Test
@@ -49,7 +69,7 @@ class ExchangeEventConsumerTest {
         // act
         AmqpRejectAndDontRequeueException exception = assertThrows(
                 AmqpRejectAndDontRequeueException.class,
-                () -> exchangeEventConsumer.consumeExchangeEvent(payload)
+                () -> exchangeEventConsumer.consumeExchangeEvent(payload, null)
         );
 
         // assert
@@ -67,7 +87,7 @@ class ExchangeEventConsumerTest {
         // act
         RuntimeException exception = assertThrows(
                 RuntimeException.class,
-                () -> exchangeEventConsumer.consumeExchangeEvent(payload)
+                () -> exchangeEventConsumer.consumeExchangeEvent(payload, null)
         );
 
         // assert
@@ -77,6 +97,7 @@ class ExchangeEventConsumerTest {
     private ExchangeEventPayload sampleEvent() {
         return ExchangeEventPayload.builder()
                 .eventId(UUID.randomUUID())
+                .correlationId("corr-consumer-payload-123")
                 .eventType("exchange.request.created")
                 .occurredAt(LocalDateTime.of(2026, 5, 18, 22, 30))
                 .exchangeRequestId(101L)

@@ -4,12 +4,14 @@ import com.secondshelf.notificationservice.entity.Notification;
 import com.secondshelf.notificationservice.entity.NotificationType;
 import com.secondshelf.notificationservice.entity.ProcessedEvent;
 import com.secondshelf.notificationservice.exception.NotificationBadRequestException;
+import com.secondshelf.notificationservice.observability.NotificationAsyncMetrics;
 import com.secondshelf.notificationservice.repository.NotificationRepository;
 import com.secondshelf.notificationservice.repository.ProcessedEventRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -35,8 +37,18 @@ class ExchangeEventNotificationServiceTest {
     @Mock
     private ProcessedEventRepository processedEventRepository;
 
-    @InjectMocks
     private ExchangeEventNotificationService exchangeEventNotificationService;
+    private SimpleMeterRegistry meterRegistry;
+
+    @BeforeEach
+    void setUp() {
+        meterRegistry = new SimpleMeterRegistry();
+        exchangeEventNotificationService = new ExchangeEventNotificationService(
+                notificationRepository,
+                processedEventRepository,
+                new NotificationAsyncMetrics(meterRegistry)
+        );
+    }
 
     @Test
     void processShouldCreateOwnerNotificationForCreatedEvent() {
@@ -57,6 +69,13 @@ class ExchangeEventNotificationServiceTest {
         assertEquals("EXCHANGE_REQUEST", notification.getRelatedEntityType());
         assertEquals("101", notification.getRelatedEntityId());
         assertEquals(payload.getOccurredAt(), notification.getCreatedAt());
+        assertEquals(
+                1.0,
+                meterRegistry.get("notification.exchange.events.processed")
+                        .tag("event_type", "exchange.request.created")
+                        .counter()
+                        .count()
+        );
     }
 
     @Test
@@ -146,6 +165,14 @@ class ExchangeEventNotificationServiceTest {
         // assert
         verify(processedEventRepository, never()).saveAndFlush(any(ProcessedEvent.class));
         verify(notificationRepository, never()).saveAll(any());
+        assertEquals(
+                1.0,
+                meterRegistry.get("notification.exchange.events.ignored")
+                        .tag("event_type", "exchange.request.created")
+                        .tag("reason", "duplicate")
+                        .counter()
+                        .count()
+        );
     }
 
     @Test
@@ -161,6 +188,14 @@ class ExchangeEventNotificationServiceTest {
 
         // assert
         verify(notificationRepository, never()).saveAll(any());
+        assertEquals(
+                1.0,
+                meterRegistry.get("notification.exchange.events.ignored")
+                        .tag("event_type", "exchange.request.created")
+                        .tag("reason", "duplicate")
+                        .counter()
+                        .count()
+        );
     }
 
     @Test
@@ -179,6 +214,14 @@ class ExchangeEventNotificationServiceTest {
         verify(processedEventRepository, never()).existsById(any());
         verify(processedEventRepository, never()).saveAndFlush(any(ProcessedEvent.class));
         verify(notificationRepository, never()).saveAll(any());
+        assertEquals(
+                1.0,
+                meterRegistry.get("notification.exchange.events.ignored")
+                        .tag("event_type", "exchange.request.unknown")
+                        .tag("reason", "invalid")
+                        .counter()
+                        .count()
+        );
     }
 
     @SuppressWarnings("unchecked")
@@ -191,6 +234,7 @@ class ExchangeEventNotificationServiceTest {
     private ExchangeEventPayload sampleEvent(String eventType) {
         return ExchangeEventPayload.builder()
                 .eventId(UUID.randomUUID())
+                .correlationId("corr-notification-123")
                 .eventType(eventType)
                 .occurredAt(LocalDateTime.of(2026, 5, 18, 22, 30))
                 .exchangeRequestId(101L)

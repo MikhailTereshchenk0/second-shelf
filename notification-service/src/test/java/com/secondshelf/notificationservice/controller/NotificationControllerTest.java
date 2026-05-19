@@ -6,6 +6,8 @@ import com.secondshelf.notificationservice.entity.NotificationStatus;
 import com.secondshelf.notificationservice.entity.NotificationType;
 import com.secondshelf.notificationservice.exception.NotificationNotFoundException;
 import com.secondshelf.notificationservice.exception.handler.GlobalExceptionHandler;
+import com.secondshelf.notificationservice.observability.CorrelationId;
+import com.secondshelf.notificationservice.observability.CorrelationIdFilter;
 import com.secondshelf.notificationservice.security.JwtAuthenticationFilter;
 import com.secondshelf.notificationservice.security.UserPrincipal;
 import com.secondshelf.notificationservice.service.NotificationService;
@@ -34,11 +36,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(NotificationController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, GlobalExceptionHandler.class})
+@Import({SecurityConfig.class, CorrelationIdFilter.class, JwtAuthenticationFilter.class, GlobalExceptionHandler.class})
 @TestPropertySource(properties = {
         "jwt.secret=test-secret-test-secret-test-secret-12345678"
 })
@@ -72,8 +75,10 @@ class NotificationControllerTest {
 
         // act + assert
         mockMvc.perform(get("/api/v1/notifications")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(42L, "alice", List.of("ROLE_USER")))))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(42L, "alice", List.of("ROLE_USER"))))
+                        .header(CorrelationId.HEADER_NAME, "corr-http-notification-123"))
                 .andExpect(status().isOk())
+                .andExpect(header().string(CorrelationId.HEADER_NAME, "corr-http-notification-123"))
                 .andExpect(jsonPath("$.content[0].id").value(1))
                 .andExpect(jsonPath("$.content[0].userId").value(42))
                 .andExpect(jsonPath("$.content[0].type").value("EXCHANGE_REQUEST_CREATED"))
@@ -163,6 +168,18 @@ class NotificationControllerTest {
         // act + assert
         mockMvc.perform(get("/api/v1/notifications"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void getUnreadCountShouldGenerateCorrelationIdWhenHeaderIsMissing() throws Exception {
+        // arrange
+        when(notificationService.getUnreadCount(new UserPrincipal(42L, "alice"))).thenReturn(5L);
+
+        // act + assert
+        mockMvc.perform(get("/api/v1/notifications/unread-count")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(42L, "alice", List.of("ROLE_USER")))))
+                .andExpect(status().isOk())
+                .andExpect(header().exists(CorrelationId.HEADER_NAME));
     }
 
     private String bearer(String token) {
