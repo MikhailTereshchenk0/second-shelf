@@ -91,4 +91,15 @@ class ExchangeOutboxEventFactoryTest {
         assertEquals(OutboxEventStatus.PUBLISHED, event.getStatus());
         assertNotNull(event.getPublishedAt());
     }
+
+    @Test
+    void outboxEventShouldRemainPendingUntilMarkedPublished() {
+        OutboxEvent event = OutboxEvent.builder()
+                .status(OutboxEventStatus.PENDING)
+                .attemptsCount(0)
+                .build();
+
+        assertEquals(OutboxEventStatus.PENDING, event.getStatus());
+        assertNull(event.getPublishedAt());
+    }
 }
