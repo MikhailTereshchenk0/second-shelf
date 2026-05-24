@@ -60,6 +60,22 @@ class ExchangeEventConsumerTest {
     }
 
     @Test
+    void consumeExchangeEventShouldPopulateMdcFromPayloadWhenHeaderIsMissing() {
+        // arrange
+        ExchangeEventPayload payload = sampleEvent();
+        doAnswer(invocation -> {
+            assertEquals("corr-consumer-payload-123", MDC.get(CorrelationId.MDC_KEY));
+            return null;
+        }).when(exchangeEventNotificationService).process(payload);
+
+        // act
+        exchangeEventConsumer.consumeExchangeEvent(payload, null);
+
+        // assert
+        assertNull(MDC.get(CorrelationId.MDC_KEY));
+    }
+
+    @Test
     void consumeExchangeEventShouldRejectNonRetryableBadRequest() {
         // arrange
         ExchangeEventPayload payload = sampleEvent();

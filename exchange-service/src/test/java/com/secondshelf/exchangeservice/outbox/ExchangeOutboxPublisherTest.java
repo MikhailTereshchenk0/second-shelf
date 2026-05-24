@@ -33,7 +33,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -68,8 +70,8 @@ class ExchangeOutboxPublisherTest {
                 new ExchangeAsyncMetrics(meterRegistry)
         );
 
-        when(exchangeRabbitProperties.getExchange()).thenReturn("exchange.events");
-        when(transactionOperations.execute(any(TransactionCallback.class))).thenAnswer(invocation -> {
+        lenient().when(exchangeRabbitProperties.getExchange()).thenReturn("exchange.events");
+        lenient().when(transactionOperations.execute(any(TransactionCallback.class))).thenAnswer(invocation -> {
             TransactionCallback<Object> callback = invocation.getArgument(0);
             return callback.doInTransaction(null);
         });
@@ -134,6 +136,40 @@ class ExchangeOutboxPublisherTest {
                 1.0,
                 meterRegistry.get("exchange.outbox.publish.errors")
                         .tag("event_type", "exchange.request.accepted")
+                        .counter()
+                        .count()
+        );
+    }
+
+    @Test
+    void publishPendingEventsShouldTreatMalformedPayloadAsPublishFailure() {
+        // arrange
+        OutboxEvent event = OutboxEvent.builder()
+                .id(1L)
+                .eventId(UUID.randomUUID())
+                .eventType("exchange.request.completed")
+                .payload("{not-valid-json")
+                .status(OutboxEventStatus.PENDING)
+                .attemptsCount(0)
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        when(outboxEventRepository.findTop100ByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING))
+                .thenReturn(List.of(event));
+        when(outboxEventRepository.findById(1L)).thenReturn(Optional.of(event));
+
+        // act
+        exchangeOutboxPublisher.publishPendingEvents();
+
+        // assert
+        verifyNoInteractions(rabbitTemplate);
+        verify(outboxEventRepository).save(event);
+        assertEquals(1, event.getAttemptsCount());
+        assertEquals(OutboxEventStatus.PENDING, event.getStatus());
+        assertEquals(
+                1.0,
+                meterRegistry.get("exchange.outbox.publish.errors")
+                        .tag("event_type", "exchange.request.completed")
                         .counter()
                         .count()
         );
