@@ -2,6 +2,8 @@ package com.secondshelf.exchangeservice.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -38,8 +40,8 @@ public class OutboxEvent {
     @Column(name = "event_type", nullable = false, length = 100)
     private String eventType;
 
-    @Lob
-    @Column(name = "payload", nullable = false)
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
+    @Column(name = "payload", nullable = false, columnDefinition = "TEXT")
     private String payload;
 
     @Column(name = "created_at", nullable = false, updatable = false)
