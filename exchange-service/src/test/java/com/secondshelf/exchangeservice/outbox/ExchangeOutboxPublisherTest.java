@@ -1,14 +1,17 @@
 package com.secondshelf.exchangeservice.outbox;
 
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.secondshelf.exchangeservice.config.ExchangeRabbitProperties;
 import com.secondshelf.exchangeservice.entity.OutboxEvent;
 import com.secondshelf.exchangeservice.entity.OutboxEventStatus;
+import com.secondshelf.exchangeservice.observability.CorrelationId;
+import com.secondshelf.exchangeservice.observability.ExchangeAsyncMetrics;
 import com.secondshelf.exchangeservice.repository.OutboxEventRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.AmqpException;
@@ -23,10 +26,17 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ExchangeOutboxPublisherTest {
@@ -43,13 +53,25 @@ class ExchangeOutboxPublisherTest {
     @Mock
     private TransactionOperations transactionOperations;
 
-    @InjectMocks
     private ExchangeOutboxPublisher exchangeOutboxPublisher;
+    private JsonMapper objectMapper;
+    private SimpleMeterRegistry meterRegistry;
 
     @BeforeEach
     void setUp() {
-        when(exchangeRabbitProperties.getExchange()).thenReturn("exchange.events");
-        when(transactionOperations.execute(any(TransactionCallback.class))).thenAnswer(invocation -> {
+        objectMapper = JsonMapper.builder().findAndAddModules().build();
+        meterRegistry = new SimpleMeterRegistry();
+        exchangeOutboxPublisher = new ExchangeOutboxPublisher(
+                outboxEventRepository,
+                rabbitTemplate,
+                exchangeRabbitProperties,
+                transactionOperations,
+                objectMapper,
+                new ExchangeAsyncMetrics(meterRegistry)
+        );
+
+        lenient().when(exchangeRabbitProperties.getExchange()).thenReturn("exchange.events");
+        lenient().when(transactionOperations.execute(any(TransactionCallback.class))).thenAnswer(invocation -> {
             TransactionCallback<Object> callback = invocation.getArgument(0);
             return callback.doInTransaction(null);
         });
@@ -58,15 +80,7 @@ class ExchangeOutboxPublisherTest {
     @Test
     void publishPendingEventsShouldSendEventAndMarkItPublished() {
         // arrange
-        OutboxEvent event = OutboxEvent.builder()
-                .id(1L)
-                .eventId(UUID.randomUUID())
-                .eventType("exchange.request.created")
-                .payload("{\"eventType\":\"exchange.request.created\"}")
-                .status(OutboxEventStatus.PENDING)
-                .attemptsCount(0)
-                .createdAt(LocalDateTime.now())
-                .build();
+        OutboxEvent event = buildEvent("exchange.request.created", "corr-publish-123");
 
         when(outboxEventRepository.findTop100ByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING))
                 .thenReturn(List.of(event));
@@ -82,27 +96,27 @@ class ExchangeOutboxPublisherTest {
         verify(outboxEventRepository).save(event);
 
         Message message = messageCaptor.getValue();
-        assertEquals("{\"eventType\":\"exchange.request.created\"}", new String(message.getBody(), StandardCharsets.UTF_8));
+        assertEquals(event.getPayload(), new String(message.getBody(), StandardCharsets.UTF_8));
         assertEquals("application/json", message.getMessageProperties().getContentType());
         assertEquals(event.getEventId().toString(), message.getMessageProperties().getMessageId());
         assertEquals(event.getEventId().toString(), message.getMessageProperties().getHeaders().get("eventId"));
         assertEquals("exchange.request.created", message.getMessageProperties().getHeaders().get("eventType"));
+        assertEquals("corr-publish-123", message.getMessageProperties().getHeaders().get(CorrelationId.HEADER_NAME));
         assertEquals(OutboxEventStatus.PUBLISHED, event.getStatus());
         assertNotNull(event.getPublishedAt());
+        assertEquals(
+                1.0,
+                meterRegistry.get("exchange.outbox.events.published")
+                        .tag("event_type", "exchange.request.created")
+                        .counter()
+                        .count()
+        );
     }
 
     @Test
     void publishPendingEventsShouldIncrementAttemptsWhenPublishFails() {
         // arrange
-        OutboxEvent event = OutboxEvent.builder()
-                .id(1L)
-                .eventId(UUID.randomUUID())
-                .eventType("exchange.request.accepted")
-                .payload("{\"eventType\":\"exchange.request.accepted\"}")
-                .status(OutboxEventStatus.PENDING)
-                .attemptsCount(0)
-                .createdAt(LocalDateTime.now())
-                .build();
+        OutboxEvent event = buildEvent("exchange.request.accepted", "corr-fail-123");
 
         when(outboxEventRepository.findTop100ByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING))
                 .thenReturn(List.of(event));
@@ -118,5 +132,63 @@ class ExchangeOutboxPublisherTest {
         assertEquals(1, event.getAttemptsCount());
         assertEquals(OutboxEventStatus.PENDING, event.getStatus());
         assertNull(event.getPublishedAt());
+        assertEquals(
+                1.0,
+                meterRegistry.get("exchange.outbox.publish.errors")
+                        .tag("event_type", "exchange.request.accepted")
+                        .counter()
+                        .count()
+        );
+    }
+
+    @Test
+    void publishPendingEventsShouldTreatMalformedPayloadAsPublishFailure() {
+        // arrange
+        OutboxEvent event = OutboxEvent.builder()
+                .id(1L)
+                .eventId(UUID.randomUUID())
+                .eventType("exchange.request.completed")
+                .payload("{not-valid-json")
+                .status(OutboxEventStatus.PENDING)
+                .attemptsCount(0)
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        when(outboxEventRepository.findTop100ByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING))
+                .thenReturn(List.of(event));
+        when(outboxEventRepository.findById(1L)).thenReturn(Optional.of(event));
+
+        // act
+        exchangeOutboxPublisher.publishPendingEvents();
+
+        // assert
+        verifyNoInteractions(rabbitTemplate);
+        verify(outboxEventRepository).save(event);
+        assertEquals(1, event.getAttemptsCount());
+        assertEquals(OutboxEventStatus.PENDING, event.getStatus());
+        assertEquals(
+                1.0,
+                meterRegistry.get("exchange.outbox.publish.errors")
+                        .tag("event_type", "exchange.request.completed")
+                        .counter()
+                        .count()
+        );
+    }
+
+    private OutboxEvent buildEvent(String eventType, String correlationId) {
+        UUID eventId = UUID.randomUUID();
+        String payload = """
+                {"eventId":"%s","correlationId":"%s","eventType":"%s"}
+                """.formatted(eventId, correlationId, eventType);
+
+        return OutboxEvent.builder()
+                .id(1L)
+                .eventId(eventId)
+                .eventType(eventType)
+                .payload(payload)
+                .status(OutboxEventStatus.PENDING)
+                .attemptsCount(0)
+                .createdAt(LocalDateTime.now())
+                .build();
     }
 }

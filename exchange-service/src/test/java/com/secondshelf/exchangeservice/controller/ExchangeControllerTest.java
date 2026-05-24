@@ -10,6 +10,8 @@ import com.secondshelf.exchangeservice.exception.ExchangeConflictException;
 import com.secondshelf.exchangeservice.exception.ExchangeForbiddenException;
 import com.secondshelf.exchangeservice.exception.ExchangeNotFoundException;
 import com.secondshelf.exchangeservice.exception.handler.GlobalExceptionHandler;
+import com.secondshelf.exchangeservice.observability.CorrelationId;
+import com.secondshelf.exchangeservice.observability.CorrelationIdFilter;
 import com.secondshelf.exchangeservice.security.JwtAuthenticationFilter;
 import com.secondshelf.exchangeservice.security.UserPrincipal;
 import com.secondshelf.exchangeservice.service.ExchangeService;
@@ -42,7 +44,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(ExchangeController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, GlobalExceptionHandler.class})
+@Import({SecurityConfig.class, CorrelationIdFilter.class, JwtAuthenticationFilter.class, GlobalExceptionHandler.class})
 @TestPropertySource(properties = {
         "jwt.secret=test-secret-test-secret-test-secret-12345678"
 })
@@ -84,9 +86,11 @@ class ExchangeControllerTest {
         // act + assert
         mockMvc.perform(post("/api/v1/exchanges")
                         .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(42L, "alice", List.of("ROLE_USER"))))
+                        .header(CorrelationId.HEADER_NAME, "corr-http-exchange-123")
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
+                .andExpect(header().string(CorrelationId.HEADER_NAME, "corr-http-exchange-123"))
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.requestedBookId").value(100))
                 .andExpect(jsonPath("$.offeredBookId").value(200))
@@ -332,6 +336,34 @@ class ExchangeControllerTest {
         // act + assert
         mockMvc.perform(get("/api/v1/exchanges/my/outgoing"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void createShouldGenerateCorrelationIdWhenHeaderIsMissing() throws Exception {
+        // arrange
+        CreateExchangeRequest request = new CreateExchangeRequest();
+        request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
+
+        when(exchangeService.create(any(CreateExchangeRequest.class), any(UserPrincipal.class)))
+                .thenReturn(ExchangeResponse.builder()
+                        .id(1L)
+                        .requestedBookId(100L)
+                        .offeredBookId(200L)
+                        .ownerId(55L)
+                        .requesterId(42L)
+                        .status(ExchangeStatus.PENDING)
+                        .createdAt(LocalDateTime.now())
+                        .updatedAt(LocalDateTime.now())
+                        .build());
+
+        // act + assert
+        mockMvc.perform(post("/api/v1/exchanges")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(42L, "alice", List.of("ROLE_USER"))))
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(header().exists(CorrelationId.HEADER_NAME));
     }
 
     private String bearer(String token) {

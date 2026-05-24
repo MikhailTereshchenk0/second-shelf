@@ -66,3 +66,7 @@ info:
     name: notification-service
     description: Notification center service for Second Shelf
     version: v1
+
+logging:
+  pattern:
+    level: "%5p [corr:%X{correlationId:-}]"

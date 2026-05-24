@@ -11,6 +11,7 @@ import java.util.UUID;
 @Builder
 public class ExchangeEventPayload {
     UUID eventId;
+    String correlationId;
     String eventType;
     LocalDateTime occurredAt;
     Long exchangeRequestId;

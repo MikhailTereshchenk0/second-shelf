@@ -8,7 +8,6 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.Lob;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
@@ -16,6 +15,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 
@@ -46,8 +47,8 @@ public class Notification {
     @Column(name = "title", nullable = false, length = 200)
     private String title;
 
-    @Lob
-    @Column(name = "message", nullable = false)
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
+    @Column(name = "message", nullable = false, columnDefinition = "TEXT")
     private String message;
 
     @Enumerated(EnumType.STRING)

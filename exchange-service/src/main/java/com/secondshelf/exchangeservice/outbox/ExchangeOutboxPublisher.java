@@ -1,8 +1,11 @@
 package com.secondshelf.exchangeservice.outbox;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.secondshelf.exchangeservice.config.ExchangeRabbitProperties;
 import com.secondshelf.exchangeservice.entity.OutboxEvent;
 import com.secondshelf.exchangeservice.entity.OutboxEventStatus;
+import com.secondshelf.exchangeservice.observability.CorrelationId;
+import com.secondshelf.exchangeservice.observability.ExchangeAsyncMetrics;
 import com.secondshelf.exchangeservice.repository.OutboxEventRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +32,8 @@ public class ExchangeOutboxPublisher {
     private final RabbitTemplate rabbitTemplate;
     private final ExchangeRabbitProperties exchangeRabbitProperties;
     private final TransactionOperations transactionOperations;
+    private final ObjectMapper objectMapper;
+    private final ExchangeAsyncMetrics exchangeAsyncMetrics;
 
     @Scheduled(fixedDelayString = "${exchange.outbox.publisher.fixed-delay-ms:5000}")
     public void publishPendingEvents() {
@@ -39,15 +44,28 @@ public class ExchangeOutboxPublisher {
     }
 
     private void publishPendingEventSafely(OutboxEvent event) {
+        ExchangeEventPayload payload = null;
         try {
-            rabbitTemplate.send(exchangeRabbitProperties.getExchange(), event.getEventType(), buildMessage(event));
-            markPublished(event.getId());
+            payload = readPayload(event);
+            try (CorrelationId.Scope ignored = CorrelationId.openScope(payload.getCorrelationId())) {
+                rabbitTemplate.send(exchangeRabbitProperties.getExchange(), event.getEventType(), buildMessage(event, payload));
+                markPublished(event.getId());
+                exchangeAsyncMetrics.incrementPublished(event.getEventType());
+                log.info(
+                        "Published exchange outbox event id={}, eventId={}, eventType={}",
+                        event.getId(),
+                        event.getEventId(),
+                        event.getEventType()
+                );
+            }
         } catch (RuntimeException ex) {
-            handlePublishFailure(event, ex);
+            try (CorrelationId.Scope ignored = CorrelationId.openScope(payload != null ? payload.getCorrelationId() : null)) {
+                handlePublishFailure(event, ex);
+            }
         }
     }
 
-    private Message buildMessage(OutboxEvent event) {
+    private Message buildMessage(OutboxEvent event, ExchangeEventPayload payload) {
         return MessageBuilder.withBody(event.getPayload().getBytes(StandardCharsets.UTF_8))
                 .setContentType(MessageProperties.CONTENT_TYPE_JSON)
                 .setContentEncoding(StandardCharsets.UTF_8.name())
@@ -55,7 +73,19 @@ public class ExchangeOutboxPublisher {
                 .setMessageId(event.getEventId().toString())
                 .setHeader("eventId", event.getEventId().toString())
                 .setHeader("eventType", event.getEventType())
+                .setHeader(CorrelationId.HEADER_NAME, CorrelationId.resolve(payload.getCorrelationId()))
                 .build();
+    }
+
+    private ExchangeEventPayload readPayload(OutboxEvent event) {
+        try {
+            return objectMapper.readValue(event.getPayload(), ExchangeEventPayload.class);
+        } catch (Exception ex) {
+            throw new IllegalStateException(
+                    "Failed to deserialize exchange outbox payload for event id=" + event.getId(),
+                    ex
+            );
+        }
     }
 
     private void markPublished(Long outboxEventId) {
@@ -68,6 +98,7 @@ public class ExchangeOutboxPublisher {
     }
 
     private void handlePublishFailure(OutboxEvent event, RuntimeException ex) {
+        exchangeAsyncMetrics.incrementPublishError(event.getEventType());
         log.warn(
                 "Failed to publish exchange outbox event id={}, eventId={}, eventType={}",
                 event.getId(),
