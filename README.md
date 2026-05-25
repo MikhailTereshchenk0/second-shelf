@@ -7,6 +7,10 @@ authentication for public APIs, `X-Internal-Token` protection for private
 service APIs, RabbitMQ delivery for exchange domain events, and persisted
 in-app notifications built through the outbox pattern.
 
+## Documentation
+
+- [Security documentation pack](docs/security/README.md)
+
 ## Project Structure
 
 | Service | Port | Responsibility | Database |
