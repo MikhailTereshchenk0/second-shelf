@@ -497,6 +497,17 @@ configuration; when omitted, the services use the defaults documented below.
 | `JWT_ACCESS_EXPIRATION_MS` | Access token lifetime in milliseconds. |
 | `JWT_REFRESH_EXPIRATION_MS` | Refresh token lifetime in milliseconds. |
 
+Registration in `auth-service` and internal user creation in `user-service`
+share the same password policy:
+
+- length from `10` to `100` characters;
+- at least one lowercase letter;
+- at least one uppercase letter;
+- at least one digit;
+- at least one special character;
+- no whitespace;
+- must not contain the `username` or the email local-part.
+
 ### PostgreSQL
 
 | Variable | Purpose |
@@ -552,7 +563,7 @@ configuration; when omitted, the services use the defaults documented below.
 | Variable | Purpose |
 | --- | --- |
 | `SEED_ADMIN_USERNAME` | Admin username created on startup if it does not exist. |
-| `SEED_ADMIN_PASSWORD` | Admin password created on startup if it does not exist. |
+| `SEED_ADMIN_PASSWORD` | Admin password created on startup if it does not exist. In non-`local` profiles it must satisfy the same password policy as regular user registration. |
 | `SEED_ADMIN_EMAIL` | Admin email created on startup if it does not exist. |
 
 ### Exchange Outbox Publisher Tuning

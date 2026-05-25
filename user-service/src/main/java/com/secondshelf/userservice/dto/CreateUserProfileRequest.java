@@ -1,12 +1,13 @@
 package com.secondshelf.userservice.dto;
 
+import com.secondshelf.userservice.validation.password.ValidPasswordPolicy;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 @Data
+@ValidPasswordPolicy
 public class CreateUserProfileRequest {
 
     @NotBlank
@@ -33,6 +34,5 @@ public class CreateUserProfileRequest {
     private String about;
 
     @NotBlank
-    @Size(min = 6, max = 100)
     private String password;
 }

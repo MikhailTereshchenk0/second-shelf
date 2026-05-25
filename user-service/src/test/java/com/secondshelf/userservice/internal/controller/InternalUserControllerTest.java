@@ -1,7 +1,9 @@
 package com.secondshelf.userservice.internal.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.secondshelf.userservice.config.InternalTokenFilter;
 import com.secondshelf.userservice.config.SecurityConfig;
+import com.secondshelf.userservice.dto.PrivateUserProfileResponse;
 import com.secondshelf.userservice.entity.Role;
 import com.secondshelf.userservice.entity.User;
 import com.secondshelf.userservice.exception.handler.GlobalExceptionHandler;
@@ -19,6 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.EnumSet;
 import java.util.Optional;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -34,11 +37,93 @@ class InternalUserControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
     @MockitoBean
     private UserService userService;
 
     @MockitoBean
     private UserRepository userRepository;
+
+    @Test
+    void createProfileShouldRejectWeakPasswordWhenInternalTokenIsValid() throws Exception {
+        CreateUserProfileRequestBody request = new CreateUserProfileRequestBody(
+                "alice",
+                "reader@example.com",
+                "Alice",
+                "Reader",
+                "Minsk",
+                "About",
+                "weakpass12"
+        );
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/internal/users")
+                        .header(InternalTokenFilter.HEADER, "test-internal-token")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.details.password")
+                        .value("Password must contain at least one uppercase letter."));
+    }
+
+    @Test
+    void createProfileShouldAcceptStrongPasswordWhenInternalTokenIsValid() throws Exception {
+        CreateUserProfileRequestBody request = new CreateUserProfileRequestBody(
+                "alice",
+                "reader@example.com",
+                "Alice",
+                "Reader",
+                "Minsk",
+                "About",
+                "Str0ng!Pwd99"
+        );
+
+        PrivateUserProfileResponse response = PrivateUserProfileResponse.builder()
+                .id(10L)
+                .username("alice")
+                .email("reader@example.com")
+                .firstName("Alice")
+                .lastName("Reader")
+                .roles(EnumSet.of(Role.ROLE_USER))
+                .enabled(true)
+                .build();
+
+        when(userService.createProfile(any())).thenReturn(response);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/internal/users")
+                        .header(InternalTokenFilter.HEADER, "test-internal-token")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(10))
+                .andExpect(jsonPath("$.username").value("alice"))
+                .andExpect(jsonPath("$.email").value("reader@example.com"))
+                .andExpect(jsonPath("$.enabled").value(true));
+    }
+
+    @Test
+    void createProfileShouldRejectPasswordContainingEmailLocalPart() throws Exception {
+        CreateUserProfileRequestBody request = new CreateUserProfileRequestBody(
+                "alice",
+                "reader@example.com",
+                "Alice",
+                "Reader",
+                "Minsk",
+                "About",
+                "Sup3r!readerPwd"
+        );
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/internal/users")
+                        .header(InternalTokenFilter.HEADER, "test-internal-token")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.details.password")
+                        .value("Password must not contain email local-part."));
+    }
 
     @Test
     void claimsShouldReturnDisabledFlagForBlockedUserWhenInternalTokenIsValid() throws Exception {
@@ -73,5 +158,16 @@ class InternalUserControllerTest {
                           "message": "Invalid internal token"
                         }
                         """));
+    }
+
+    private record CreateUserProfileRequestBody(
+            String username,
+            String email,
+            String firstName,
+            String lastName,
+            String city,
+            String about,
+            String password
+    ) {
     }
 }
