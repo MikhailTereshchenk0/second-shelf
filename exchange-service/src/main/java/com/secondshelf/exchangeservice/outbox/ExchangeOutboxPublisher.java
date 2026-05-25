@@ -77,6 +77,14 @@ public class ExchangeOutboxPublisher {
         try {
             payload = readPayload(event);
             try (CorrelationId.Scope ignored = CorrelationId.openScope(payload.getCorrelationId())) {
+                log.info(
+                        "Publishing exchange outbox event id={}, eventId={}, eventType={}, attempt={}, maxAttempts={}",
+                        event.getId(),
+                        event.getEventId(),
+                        event.getEventType(),
+                        event.getAttemptsCount() + 1,
+                        maxAttempts
+                );
                 CorrelationData correlationData = new CorrelationData(event.getEventId().toString());
                 rabbitTemplate.send(
                         exchangeRabbitProperties.getExchange(),

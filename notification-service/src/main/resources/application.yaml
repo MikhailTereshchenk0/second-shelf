@@ -41,12 +41,20 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics
   endpoint:
     health:
       probes:
         enabled: true
       show-details: never
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db,rabbit,rabbitListeners
+        asyncFlow:
+          include: readinessState,db,rabbit,rabbitListeners
+          show-details: always
   info:
     env:
       enabled: true
@@ -56,7 +64,7 @@ management:
     readinessstate:
       enabled: true
     rabbit:
-      enabled: false
+      enabled: true
 
 springdoc:
   swagger-ui:
