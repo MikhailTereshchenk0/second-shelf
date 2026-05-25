@@ -25,7 +25,7 @@ public class ExchangeOutboxEventFactory {
     private final ObjectMapper objectMapper;
     private final ExchangeAsyncMetrics exchangeAsyncMetrics;
 
-    public OutboxEvent create(ExchangeEventType eventType, ExchangeRequest exchangeRequest) {
+    public OutboxEvent create(ExchangeEventType eventType, ExchangeRequest exchangeRequest, Long completedByUserId) {
         Objects.requireNonNull(eventType, "eventType must not be null");
         Objects.requireNonNull(exchangeRequest, "exchangeRequest must not be null");
         Objects.requireNonNull(exchangeRequest.getId(), "Exchange request must contain id before outbox event creation.");
@@ -44,7 +44,10 @@ public class ExchangeOutboxEventFactory {
                     .ownerId(exchangeRequest.getOwnerId())
                     .requestedBookId(exchangeRequest.getRequestedBookId())
                     .offeredBookId(exchangeRequest.getOfferedBookId())
+                    .completedByUserId(completedByUserId)
                     .status(exchangeRequest.getStatus())
+                    .ownerCompletionConfirmedAt(exchangeRequest.getOwnerCompletionConfirmedAt())
+                    .requesterCompletionConfirmedAt(exchangeRequest.getRequesterCompletionConfirmedAt())
                     .build();
 
             OutboxEvent outboxEvent = OutboxEvent.builder()

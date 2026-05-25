@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.HttpClientErrorException;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -29,6 +30,17 @@ import java.util.List;
 @RequiredArgsConstructor
 @Transactional
 public class ExchangeService {
+
+    private static final List<ExchangeStatus> ACTIVE_EXCHANGE_STATUSES = List.of(
+            ExchangeStatus.PENDING,
+            ExchangeStatus.ACCEPTED,
+            ExchangeStatus.COMPLETION_PENDING
+    );
+
+    private static final List<ExchangeStatus> COMPLETION_ELIGIBLE_STATUSES = List.of(
+            ExchangeStatus.ACCEPTED,
+            ExchangeStatus.COMPLETION_PENDING
+    );
 
     private final ExchangeRepository exchangeRepository;
     private final BookServiceClient bookServiceClient;
@@ -54,7 +66,7 @@ public class ExchangeService {
                 requesterId,
                 req.getRequestedBookId(),
                 req.getOfferedBookId(),
-                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+                ACTIVE_EXCHANGE_STATUSES
         )) {
             throw new ExchangeConflictException(
                     "DUPLICATE_ACTIVE_EXCHANGE_REQUEST",
@@ -108,13 +120,13 @@ public class ExchangeService {
 
         List<ExchangeRequest> activeRequests = exchangeRepository.lockAllActiveByBookIds(
                 bookIds,
-                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+                ACTIVE_EXCHANGE_STATUSES
         );
 
-        if (exchangeRepository.existsAnotherByStatusAndBookIds(
+        if (exchangeRepository.existsAnotherByStatusesAndBookIds(
                 req.getId(),
                 bookIds,
-                ExchangeStatus.ACCEPTED
+                List.of(ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING)
         )) {
             throw new ExchangeConflictException(
                     "BOOK_ALREADY_IN_ACCEPTED_EXCHANGE",
@@ -164,10 +176,11 @@ public class ExchangeService {
         if (!me.equals(req.getRequesterId())) {
             throw new ExchangeForbiddenException("ONLY_REQUESTER_CAN_CANCEL", "Only requester can cancel.");
         }
-        if (req.getStatus() != ExchangeStatus.PENDING && req.getStatus() != ExchangeStatus.ACCEPTED) {
+        if ((req.getStatus() != ExchangeStatus.PENDING && req.getStatus() != ExchangeStatus.ACCEPTED)
+                || req.hasAnyCompletionConfirmation()) {
             throw new ExchangeConflictException(
                     "INVALID_EXCHANGE_STATUS_TRANSITION",
-                    "Only PENDING or ACCEPTED request can be canceled."
+                    "Only PENDING or ACCEPTED request without completion confirmation can be canceled."
             );
         }
 
@@ -186,21 +199,40 @@ public class ExchangeService {
         ExchangeRequest req = findExchangeRequestForUpdate(exchangeId);
 
         Long me = requireUserId(principal);
-        // Для MVP: завершает владелец книги (можно расширить “оба подтверждают” позже)
-        if (!me.equals(req.getOwnerId())) {
-            throw new ExchangeForbiddenException("ONLY_OWNER_CAN_COMPLETE", "Only owner can complete.");
+        if (!req.isParticipant(me)) {
+            throw new ExchangeForbiddenException(
+                    "ONLY_EXCHANGE_PARTICIPANT_CAN_COMPLETE",
+                    "Only exchange participants can confirm completion."
+            );
         }
-        if (req.getStatus() != ExchangeStatus.ACCEPTED) {
+        if (!COMPLETION_ELIGIBLE_STATUSES.contains(req.getStatus())) {
             throw new ExchangeConflictException(
                     "INVALID_EXCHANGE_STATUS_TRANSITION",
-                    "Only ACCEPTED request can be completed."
+                    "Only ACCEPTED or COMPLETION_PENDING request can be completed."
             );
+        }
+        if (req.hasCompletionConfirmationFrom(me)) {
+            return toResponse(req);
+        }
+
+        LocalDateTime confirmedAt = LocalDateTime.now();
+        if (!req.hasAnyCompletionConfirmation()) {
+            req.confirmCompletion(me, confirmedAt);
+            req.setStatus(ExchangeStatus.COMPLETION_PENDING);
+            ExchangeRequest saved = exchangeRepository.save(req);
+            exchangeOutboxService.recordExchangeEvent(
+                    ExchangeEventType.EXCHANGE_REQUEST_COMPLETION_CONFIRMED,
+                    saved,
+                    me
+            );
+            return toResponse(saved);
         }
 
         completeBothBooks(req);
+        req.confirmCompletion(me, confirmedAt);
         req.setStatus(ExchangeStatus.COMPLETED);
         ExchangeRequest saved = exchangeRepository.save(req);
-        exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_COMPLETED, saved);
+        exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_COMPLETED, saved, me);
 
         return toResponse(saved);
     }
@@ -407,6 +439,8 @@ public class ExchangeService {
                 .requesterId(r.getRequesterId())
                 .status(r.getStatus())
                 .message(r.getMessage())
+                .ownerCompletionConfirmedAt(r.getOwnerCompletionConfirmedAt())
+                .requesterCompletionConfirmedAt(r.getRequesterCompletionConfirmedAt())
                 .createdAt(r.getCreatedAt())
                 .updatedAt(r.getUpdatedAt())
                 .build();

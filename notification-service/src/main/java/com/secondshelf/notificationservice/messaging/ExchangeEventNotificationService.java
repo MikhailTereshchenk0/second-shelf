@@ -110,6 +110,15 @@ public class ExchangeEventNotificationService {
                             + " cancelled the exchange request for your book #" + eventPayload.getRequestedBookId() + ".",
                     eventPayload
             ));
+            case EXCHANGE_REQUEST_COMPLETION_CONFIRMED -> List.of(buildNotification(
+                    resolveCompletionConfirmationRecipient(eventPayload),
+                    NotificationType.EXCHANGE_REQUEST_COMPLETION_CONFIRMED,
+                    "Exchange waiting for your confirmation",
+                    "User #" + eventPayload.getCompletedByUserId()
+                            + " confirmed exchange request #" + eventPayload.getExchangeRequestId()
+                            + ". Confirm it from your side to finish the exchange.",
+                    eventPayload
+            ));
             case EXCHANGE_REQUEST_COMPLETED -> List.of(
                     buildNotification(
                             eventPayload.getRequesterId(),
@@ -159,6 +168,28 @@ public class ExchangeEventNotificationService {
 
     private LocalDateTime resolveCreatedAt(ExchangeEventPayload eventPayload) {
         return eventPayload.getOccurredAt() != null ? eventPayload.getOccurredAt() : LocalDateTime.now();
+    }
+
+    private Long resolveCompletionConfirmationRecipient(ExchangeEventPayload eventPayload) {
+        Long completedByUserId = eventPayload.getCompletedByUserId();
+
+        if (completedByUserId == null) {
+            throw new NotificationBadRequestException(
+                    "INVALID_EXCHANGE_EVENT",
+                    "Completion confirmation event must contain completedByUserId."
+            );
+        }
+        if (completedByUserId.equals(eventPayload.getRequesterId())) {
+            return eventPayload.getOwnerId();
+        }
+        if (completedByUserId.equals(eventPayload.getOwnerId())) {
+            return eventPayload.getRequesterId();
+        }
+
+        throw new NotificationBadRequestException(
+                "INVALID_EXCHANGE_EVENT",
+                "completedByUserId must belong to one of exchange participants."
+        );
     }
 
     private ExchangeEventType parseEventType(String eventType) {

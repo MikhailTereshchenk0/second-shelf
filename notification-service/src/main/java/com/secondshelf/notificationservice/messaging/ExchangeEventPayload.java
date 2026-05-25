@@ -24,5 +24,8 @@ public class ExchangeEventPayload {
     private Long ownerId;
     private Long requestedBookId;
     private Long offeredBookId;
+    private Long completedByUserId;
     private String status;
+    private LocalDateTime ownerCompletionConfirmedAt;
+    private LocalDateTime requesterCompletionConfirmedAt;
 }

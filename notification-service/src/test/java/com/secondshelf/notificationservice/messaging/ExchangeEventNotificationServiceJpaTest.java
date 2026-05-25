@@ -89,6 +89,25 @@ class ExchangeEventNotificationServiceJpaTest {
     }
 
     @Test
+    void processShouldPersistSingleNotificationForCompletionConfirmedEvent() {
+        // arrange
+        ExchangeEventPayload payload = sampleEvent(UUID.randomUUID(), "exchange.request.completion_confirmed");
+        payload.setCompletedByUserId(42L);
+        payload.setStatus("COMPLETION_PENDING");
+
+        // act
+        exchangeEventNotificationService.process(payload);
+
+        // assert
+        List<Notification> notifications = notificationRepository.findAll();
+        assertEquals(1, notifications.size());
+        Notification notification = notifications.get(0);
+        assertEquals(55L, notification.getUserId());
+        assertEquals(NotificationType.EXCHANGE_REQUEST_COMPLETION_CONFIRMED, notification.getType());
+        assertEquals("Exchange waiting for your confirmation", notification.getTitle());
+    }
+
+    @Test
     void processShouldPersistTwoUnreadNotificationsForCompletedEvent() {
         // arrange
         ExchangeEventPayload payload = sampleEvent(UUID.randomUUID(), "exchange.request.completed");

@@ -26,6 +26,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -74,7 +75,7 @@ class ExchangeServiceTest {
                 42L,
                 100L,
                 200L,
-                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING)
         )).thenReturn(false);
 
         when(exchangeRepository.save(any(ExchangeRequest.class))).thenAnswer(invocation -> {
@@ -318,7 +319,7 @@ class ExchangeServiceTest {
                 42L,
                 100L,
                 200L,
-                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING)
         )).thenReturn(true);
 
         // act
@@ -402,12 +403,12 @@ class ExchangeServiceTest {
         when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
         when(exchangeRepository.lockAllActiveByBookIds(
                 List.of(100L, 200L),
-                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING)
         )).thenReturn(List.of(request));
-        when(exchangeRepository.existsAnotherByStatusAndBookIds(
+        when(exchangeRepository.existsAnotherByStatusesAndBookIds(
                 10L,
                 List.of(100L, 200L),
-                ExchangeStatus.ACCEPTED
+                List.of(ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING)
         )).thenReturn(false);
         when(exchangeRepository.save(any(ExchangeRequest.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -420,7 +421,7 @@ class ExchangeServiceTest {
 
         verify(exchangeRepository).lockAllActiveByBookIds(
                 List.of(100L, 200L),
-                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING)
         );
         verify(bookServiceClient).reserve(100L);
         verify(bookServiceClient).reserve(200L);
@@ -454,12 +455,12 @@ class ExchangeServiceTest {
         when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
         when(exchangeRepository.lockAllActiveByBookIds(
                 List.of(100L, 200L),
-                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING)
         )).thenReturn(List.of(request, conflictingRequest));
-        when(exchangeRepository.existsAnotherByStatusAndBookIds(
+        when(exchangeRepository.existsAnotherByStatusesAndBookIds(
                 10L,
                 List.of(100L, 200L),
-                ExchangeStatus.ACCEPTED
+                List.of(ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING)
         )).thenReturn(false);
         when(exchangeRepository.save(any(ExchangeRequest.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(exchangeRepository.saveAll(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -489,14 +490,14 @@ class ExchangeServiceTest {
                 .build();
 
         when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
-        when(exchangeRepository.existsAnotherByStatusAndBookIds(
+        when(exchangeRepository.existsAnotherByStatusesAndBookIds(
                 10L,
                 List.of(100L, 200L),
-                ExchangeStatus.ACCEPTED
+                List.of(ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING)
         )).thenReturn(true);
         when(exchangeRepository.lockAllActiveByBookIds(
                 List.of(100L, 200L),
-                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING)
         )).thenReturn(List.of(request));
 
         // act
@@ -510,7 +511,7 @@ class ExchangeServiceTest {
         assertEquals("One of the books already participates in another accepted exchange.", exception.getMessage());
         verify(exchangeRepository).lockAllActiveByBookIds(
                 List.of(100L, 200L),
-                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING)
         );
         verify(bookServiceClient, never()).reserve(anyLong());
         verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
@@ -587,17 +588,17 @@ class ExchangeServiceTest {
                 .build();
 
         when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
-        when(exchangeRepository.existsAnotherByStatusAndBookIds(
+        when(exchangeRepository.existsAnotherByStatusesAndBookIds(
                 10L,
                 List.of(100L, 200L),
-                ExchangeStatus.ACCEPTED
+                List.of(ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING)
         )).thenReturn(false);
 
         when(bookServiceClient.reserve(100L)).thenReturn(new BookDto());
         when(bookServiceClient.reserve(200L)).thenThrow(new IllegalStateException("Offered book cannot be reserved."));
         when(exchangeRepository.lockAllActiveByBookIds(
                 List.of(100L, 200L),
-                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED)
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING)
         )).thenReturn(List.of(request));
 
         // act
@@ -665,32 +666,34 @@ class ExchangeServiceTest {
     }
 
     @Test
-    void completeShouldMarkBookExchangedAndSetCompletedStatus() {
+    void completeShouldRecordFirstConfirmationAndKeepBooksReserved() {
         // arrange
         ExchangeRequest request = ExchangeRequest.builder()
                 .id(13L)
                 .requestedBookId(103L)
+                .offeredBookId(203L)
                 .ownerId(55L)
                 .requesterId(42L)
                 .status(ExchangeStatus.ACCEPTED)
                 .build();
 
-        BookDto exchangedBook = new BookDto();
-        exchangedBook.setId(103L);
-        exchangedBook.setStatus("EXCHANGED");
-
         when(exchangeRepository.findByIdForUpdate(13L)).thenReturn(Optional.of(request));
-        when(bookServiceClient.markExchanged(103L)).thenReturn(exchangedBook);
         when(exchangeRepository.save(any(ExchangeRequest.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // act
         ExchangeResponse response = exchangeService.complete(13L, new UserPrincipal(55L, "owner"));
 
         // assert
-        assertEquals(ExchangeStatus.COMPLETED, response.getStatus());
-        verify(bookServiceClient).markExchanged(103L);
+        assertEquals(ExchangeStatus.COMPLETION_PENDING, response.getStatus());
+        assertNotNull(response.getOwnerCompletionConfirmedAt());
+        assertNull(response.getRequesterCompletionConfirmedAt());
+        verify(bookServiceClient, never()).markExchanged(anyLong());
         verify(exchangeRepository).save(request);
-        verify(exchangeOutboxService).recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_COMPLETED, request);
+        verify(exchangeOutboxService).recordExchangeEvent(
+                ExchangeEventType.EXCHANGE_REQUEST_COMPLETION_CONFIRMED,
+                request,
+                55L
+        );
     }
 
     @Test
@@ -717,7 +720,68 @@ class ExchangeServiceTest {
     }
 
     @Test
-    void completeShouldMarkBothBooksExchangedAndSetCompletedStatus() {
+    void completeShouldMarkBothBooksExchangedAfterSecondConfirmation() {
+        // arrange
+        ExchangeRequest request = ExchangeRequest.builder()
+                .id(10L)
+                .requestedBookId(100L)
+                .offeredBookId(200L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.COMPLETION_PENDING)
+                .ownerCompletionConfirmedAt(LocalDateTime.now().minusMinutes(15))
+                .build();
+
+        when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
+        when(exchangeRepository.save(any(ExchangeRequest.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // act
+        ExchangeResponse response = exchangeService.complete(10L, new UserPrincipal(42L, "requester"));
+
+        // assert
+        assertNotNull(response);
+        assertEquals(ExchangeStatus.COMPLETED, response.getStatus());
+        assertNotNull(response.getOwnerCompletionConfirmedAt());
+        assertNotNull(response.getRequesterCompletionConfirmedAt());
+
+        verify(bookServiceClient).markExchanged(100L);
+        verify(bookServiceClient).markExchanged(200L);
+        verify(exchangeRepository).save(request);
+        assertEquals(ExchangeStatus.COMPLETED, request.getStatus());
+        assertNotNull(request.getRequesterCompletionConfirmedAt());
+        verify(exchangeOutboxService).recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_COMPLETED, request, 42L);
+    }
+
+    @Test
+    void completeShouldBeIdempotentWhenSameParticipantConfirmsAgain() {
+        // arrange
+        LocalDateTime ownerConfirmedAt = LocalDateTime.now().minusMinutes(5);
+        ExchangeRequest request = ExchangeRequest.builder()
+                .id(10L)
+                .requestedBookId(100L)
+                .offeredBookId(200L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.COMPLETION_PENDING)
+                .ownerCompletionConfirmedAt(ownerConfirmedAt)
+                .build();
+
+        when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
+
+        // act
+        ExchangeResponse response = exchangeService.complete(10L, new UserPrincipal(55L, "owner"));
+
+        // assert
+        assertEquals(ExchangeStatus.COMPLETION_PENDING, response.getStatus());
+        assertEquals(ownerConfirmedAt, response.getOwnerCompletionConfirmedAt());
+        assertNull(response.getRequesterCompletionConfirmedAt());
+        verify(bookServiceClient, never()).markExchanged(anyLong());
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+        verifyNoInteractions(exchangeOutboxService);
+    }
+
+    @Test
+    void completeShouldRejectUserWhoIsNotExchangeParticipant() {
         // arrange
         ExchangeRequest request = ExchangeRequest.builder()
                 .id(10L)
@@ -729,20 +793,19 @@ class ExchangeServiceTest {
                 .build();
 
         when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
-        when(exchangeRepository.save(any(ExchangeRequest.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // act
-        ExchangeResponse response = exchangeService.complete(10L, new UserPrincipal(55L, "owner"));
+        ExchangeForbiddenException exception = assertThrows(
+                ExchangeForbiddenException.class,
+                () -> exchangeService.complete(10L, new UserPrincipal(99L, "intruder"))
+        );
 
         // assert
-        assertNotNull(response);
-        assertEquals(ExchangeStatus.COMPLETED, response.getStatus());
-
-        verify(bookServiceClient).markExchanged(100L);
-        verify(bookServiceClient).markExchanged(200L);
-        verify(exchangeRepository).save(request);
-        assertEquals(ExchangeStatus.COMPLETED, request.getStatus());
-        verify(exchangeOutboxService).recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_COMPLETED, request);
+        assertEquals("ONLY_EXCHANGE_PARTICIPANT_CAN_COMPLETE", exception.getCode());
+        assertEquals("Only exchange participants can confirm completion.", exception.getMessage());
+        verify(bookServiceClient, never()).markExchanged(anyLong());
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+        verifyNoInteractions(exchangeOutboxService);
     }
 
     @Test
@@ -754,7 +817,8 @@ class ExchangeServiceTest {
                 .offeredBookId(200L)
                 .ownerId(55L)
                 .requesterId(42L)
-                .status(ExchangeStatus.ACCEPTED)
+                .status(ExchangeStatus.COMPLETION_PENDING)
+                .ownerCompletionConfirmedAt(LocalDateTime.now().minusMinutes(15))
                 .build();
 
         when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
@@ -765,7 +829,7 @@ class ExchangeServiceTest {
         // act
         IllegalStateException exception = assertThrows(
                 IllegalStateException.class,
-                () -> exchangeService.complete(10L, new UserPrincipal(55L, "owner"))
+                () -> exchangeService.complete(10L, new UserPrincipal(42L, "requester"))
         );
 
         // assert
@@ -774,7 +838,8 @@ class ExchangeServiceTest {
         verify(bookServiceClient).markExchanged(100L);
         verify(bookServiceClient).markExchanged(200L);
         verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
-        assertEquals(ExchangeStatus.ACCEPTED, request.getStatus());
+        assertEquals(ExchangeStatus.COMPLETION_PENDING, request.getStatus());
+        assertNull(request.getRequesterCompletionConfirmedAt());
         verifyNoInteractions(exchangeOutboxService);
     }
 
@@ -841,6 +906,35 @@ class ExchangeServiceTest {
         verify(bookServiceClient).reserve(100L);
         verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
         assertEquals(ExchangeStatus.ACCEPTED, request.getStatus());
+        verifyNoInteractions(exchangeOutboxService);
+    }
+
+    @Test
+    void cancelShouldRejectWhenCompletionWasAlreadyConfirmed() {
+        // arrange
+        ExchangeRequest request = ExchangeRequest.builder()
+                .id(10L)
+                .requestedBookId(100L)
+                .offeredBookId(200L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.COMPLETION_PENDING)
+                .ownerCompletionConfirmedAt(LocalDateTime.now().minusMinutes(10))
+                .build();
+
+        when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
+
+        // act
+        ExchangeConflictException exception = assertThrows(
+                ExchangeConflictException.class,
+                () -> exchangeService.cancel(10L, new UserPrincipal(42L, "alice"))
+        );
+
+        // assert
+        assertEquals("INVALID_EXCHANGE_STATUS_TRANSITION", exception.getCode());
+        assertEquals("Only PENDING or ACCEPTED request without completion confirmation can be canceled.", exception.getMessage());
+        verify(bookServiceClient, never()).makeAvailable(anyLong());
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
         verifyNoInteractions(exchangeOutboxService);
     }
 

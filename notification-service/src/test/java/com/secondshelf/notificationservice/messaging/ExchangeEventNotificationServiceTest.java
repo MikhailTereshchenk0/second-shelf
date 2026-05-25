@@ -133,6 +133,26 @@ class ExchangeEventNotificationServiceTest {
     }
 
     @Test
+    void processShouldCreateCounterpartyNotificationForCompletionConfirmedEvent() {
+        // arrange
+        ExchangeEventPayload payload = sampleEvent("exchange.request.completion_confirmed");
+        payload.setCompletedByUserId(42L);
+        payload.setStatus("COMPLETION_PENDING");
+        when(processedEventRepository.existsById(payload.getEventId())).thenReturn(false);
+        when(processedEventRepository.saveAndFlush(any(ProcessedEvent.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        // act
+        exchangeEventNotificationService.process(payload);
+
+        // assert
+        Notification notification = captureSavedNotifications().get(0);
+        assertEquals(55L, notification.getUserId());
+        assertEquals(NotificationType.EXCHANGE_REQUEST_COMPLETION_CONFIRMED, notification.getType());
+        assertEquals("Exchange waiting for your confirmation", notification.getTitle());
+    }
+
+    @Test
     void processShouldCreateNotificationsForBothUsersWhenCompleted() {
         // arrange
         ExchangeEventPayload payload = sampleEvent("exchange.request.completed");

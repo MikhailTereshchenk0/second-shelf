@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
+import java.util.Objects;
 
 @Entity
 @Table(name = "exchange_requests",
@@ -43,6 +44,12 @@ public class ExchangeRequest {
     @Column(name = "message", length = 1000)
     private String message;
 
+    @Column(name = "owner_completion_confirmed_at")
+    private LocalDateTime ownerCompletionConfirmedAt;
+
+    @Column(name = "requester_completion_confirmed_at")
+    private LocalDateTime requesterCompletionConfirmedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -59,5 +66,47 @@ public class ExchangeRequest {
     @PreUpdate
     void preUpdate() {
         updatedAt = LocalDateTime.now();
+    }
+
+    public boolean isOwnerParticipant(Long userId) {
+        return Objects.equals(ownerId, userId);
+    }
+
+    public boolean isRequesterParticipant(Long userId) {
+        return Objects.equals(requesterId, userId);
+    }
+
+    public boolean isParticipant(Long userId) {
+        return isOwnerParticipant(userId) || isRequesterParticipant(userId);
+    }
+
+    public boolean hasCompletionConfirmationFrom(Long userId) {
+        if (isOwnerParticipant(userId)) {
+            return ownerCompletionConfirmedAt != null;
+        }
+        if (isRequesterParticipant(userId)) {
+            return requesterCompletionConfirmedAt != null;
+        }
+        return false;
+    }
+
+    public boolean hasAnyCompletionConfirmation() {
+        return ownerCompletionConfirmedAt != null || requesterCompletionConfirmedAt != null;
+    }
+
+    public boolean isCompletionConfirmedByBothParticipants() {
+        return ownerCompletionConfirmedAt != null && requesterCompletionConfirmedAt != null;
+    }
+
+    public void confirmCompletion(Long userId, LocalDateTime confirmedAt) {
+        if (isOwnerParticipant(userId)) {
+            ownerCompletionConfirmedAt = confirmedAt;
+            return;
+        }
+        if (isRequesterParticipant(userId)) {
+            requesterCompletionConfirmedAt = confirmedAt;
+            return;
+        }
+        throw new IllegalArgumentException("User is not a participant of this exchange request.");
     }
 }

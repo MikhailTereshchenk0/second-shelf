@@ -221,13 +221,16 @@ Current exchange workflow in `exchange-service`:
 9. On cancel:
    - only the requester can cancel;
    - `PENDING` and `ACCEPTED` requests can be cancelled;
+   - once one participant confirms completion, cancellation is no longer allowed;
    - if the request was `ACCEPTED`, both books are returned to `AVAILABLE`;
    - an outbox event `exchange.request.cancelled` is recorded.
 10. On complete:
-   - only the owner can complete;
-   - only `ACCEPTED` requests can be completed;
-   - both books are marked `EXCHANGED` and hidden (`PRIVATE`) in `book-service`;
-   - an outbox event `exchange.request.completed` is recorded.
+   - both participants can confirm the fact of the exchange;
+   - the first confirmation moves the request to `COMPLETION_PENDING`;
+   - an outbox event `exchange.request.completion_confirmed` is recorded to notify the counterparty;
+   - only after the second confirmation does the request become `COMPLETED`;
+   - both books are marked `EXCHANGED` and hidden (`PRIVATE`) in `book-service` only at that final moment;
+   - an outbox event `exchange.request.completed` is recorded after the second confirmation.
 
 ## Statuses
 
@@ -252,9 +255,10 @@ Related visibility states in `book-service`:
 | --- | --- |
 | `PENDING` | Request created and waiting for owner decision. |
 | `ACCEPTED` | Request accepted, both books reserved. |
+| `COMPLETION_PENDING` | One participant confirmed the exchange happened; waiting for the second participant confirmation. |
 | `DECLINED` | Request explicitly declined or auto-declined because another request was accepted for the same books. |
 | `CANCELLED` | Request cancelled by requester. |
-| `COMPLETED` | Exchange finished, both books marked as exchanged. |
+| `COMPLETED` | Both participants confirmed the exchange, both books marked as exchanged. |
 
 ### Notification Statuses
 
@@ -269,6 +273,7 @@ Current notification types generated from exchange events:
 - `EXCHANGE_REQUEST_ACCEPTED`
 - `EXCHANGE_REQUEST_DECLINED`
 - `EXCHANGE_REQUEST_CANCELLED`
+- `EXCHANGE_REQUEST_COMPLETION_CONFIRMED`
 - `EXCHANGE_REQUEST_COMPLETED`
 
 ## Local Startup With Docker Compose
@@ -408,7 +413,6 @@ Each service exposes Swagger UI at `/swagger-ui.html` and OpenAPI JSON at `/v3/a
 
 - Clients currently call each backend service directly. There is no API gateway or unified backend entry point.
 - `exchange-service` performs synchronous book state changes and uses best-effort compensation when reserve/release rollback fails. Manual investigation may still be needed in failure scenarios.
-- The exchange completion model is still MVP-level: only the book owner completes the request. There is no dual confirmation from both participants.
 - `notification-service` creates in-app notifications only. There is no email, push, SMS, or websocket delivery layer.
 - Notification text is built from numeric ids (`userId`, `bookId`, `exchangeRequestId`) and is not enriched with usernames or book titles.
 - The public catalog query currently includes `PUBLIC` books with statuses `AVAILABLE` and `RESERVED`, so reserved books remain visible in the catalog.

@@ -296,7 +296,8 @@ class ExchangeControllerTest {
                 .requestedBookId(102L)
                 .ownerId(55L)
                 .requesterId(42L)
-                .status(ExchangeStatus.COMPLETED)
+                .status(ExchangeStatus.COMPLETION_PENDING)
+                .ownerCompletionConfirmedAt(LocalDateTime.of(2026, 5, 25, 14, 5))
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -308,7 +309,9 @@ class ExchangeControllerTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(55L, "owner", List.of("ROLE_USER")))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(12))
-                .andExpect(jsonPath("$.status").value("COMPLETED"));
+                .andExpect(jsonPath("$.status").value("COMPLETION_PENDING"))
+                .andExpect(jsonPath("$.ownerCompletionConfirmedAt").value("2026-05-25T14:05:00"))
+                .andExpect(jsonPath("$.requesterCompletionConfirmedAt").isEmpty());
 
         verify(exchangeService).complete(12L, new UserPrincipal(55L, "owner"));
     }
@@ -319,7 +322,7 @@ class ExchangeControllerTest {
         when(exchangeService.complete(12L, new UserPrincipal(55L, "owner")))
                 .thenThrow(new ExchangeConflictException(
                         "INVALID_EXCHANGE_STATUS_TRANSITION",
-                        "Only ACCEPTED request can be completed."
+                        "Only ACCEPTED or COMPLETION_PENDING request can be completed."
                 ));
 
         // act + assert
@@ -327,7 +330,7 @@ class ExchangeControllerTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(55L, "owner", List.of("ROLE_USER")))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_EXCHANGE_STATUS_TRANSITION"))
-                .andExpect(jsonPath("$.message").value("Only ACCEPTED request can be completed."))
+                .andExpect(jsonPath("$.message").value("Only ACCEPTED or COMPLETION_PENDING request can be completed."))
                 .andExpect(jsonPath("$.timestamp").exists());
     }
 

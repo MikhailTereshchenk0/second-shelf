@@ -40,7 +40,7 @@ class ExchangeOutboxEventFactoryTest {
         // act
         OutboxEvent event;
         try (CorrelationId.Scope ignored = CorrelationId.openScope("corr-exchange-123")) {
-            event = factory.create(ExchangeEventType.EXCHANGE_REQUEST_ACCEPTED, exchangeRequest);
+            event = factory.create(ExchangeEventType.EXCHANGE_REQUEST_ACCEPTED, exchangeRequest, null);
         }
 
         // assert
@@ -66,6 +66,9 @@ class ExchangeOutboxEventFactoryTest {
         assertEquals(77L, payloadJson.get("requesterId").asLong());
         assertEquals(55L, payloadJson.get("ownerId").asLong());
         assertEquals("ACCEPTED", payloadJson.get("status").asText());
+        assertTrue(payloadJson.get("completedByUserId").isNull());
+        assertTrue(payloadJson.get("ownerCompletionConfirmedAt").isNull());
+        assertTrue(payloadJson.get("requesterCompletionConfirmedAt").isNull());
         assertTrue(payloadJson.hasNonNull("occurredAt"));
         assertEquals(
                 1.0,
