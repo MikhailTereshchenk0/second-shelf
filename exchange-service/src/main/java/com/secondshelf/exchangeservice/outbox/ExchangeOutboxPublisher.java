@@ -24,6 +24,7 @@ import org.springframework.transaction.support.TransactionOperations;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -41,6 +42,7 @@ public class ExchangeOutboxPublisher {
     private final ObjectMapper objectMapper;
     private final ExchangeAsyncMetrics exchangeAsyncMetrics;
     private final long confirmTimeoutMs;
+    private final int maxAttempts;
 
     public ExchangeOutboxPublisher(OutboxEventRepository outboxEventRepository,
                                    RabbitTemplate rabbitTemplate,
@@ -49,7 +51,9 @@ public class ExchangeOutboxPublisher {
                                    ObjectMapper objectMapper,
                                    ExchangeAsyncMetrics exchangeAsyncMetrics,
                                    @Value("${exchange.outbox.publisher.confirm-timeout-ms:10000}")
-                                   long confirmTimeoutMs) {
+                                   long confirmTimeoutMs,
+                                   @Value("${exchange.outbox.publisher.max-attempts:5}")
+                                   int maxAttempts) {
         this.outboxEventRepository = outboxEventRepository;
         this.rabbitTemplate = rabbitTemplate;
         this.exchangeRabbitProperties = exchangeRabbitProperties;
@@ -57,6 +61,7 @@ public class ExchangeOutboxPublisher {
         this.objectMapper = objectMapper;
         this.exchangeAsyncMetrics = exchangeAsyncMetrics;
         this.confirmTimeoutMs = confirmTimeoutMs;
+        this.maxAttempts = Math.max(1, maxAttempts);
     }
 
     @Scheduled(fixedDelayString = "${exchange.outbox.publisher.fixed-delay-ms:5000}")
@@ -177,28 +182,85 @@ public class ExchangeOutboxPublisher {
 
     private void handlePublishFailure(OutboxEvent event, RuntimeException ex) {
         exchangeAsyncMetrics.incrementPublishError(event.getEventType());
+        String failureMessage = resolveFailureMessage(ex);
         log.warn(
-                "Failed to publish exchange outbox event id={}, eventId={}, eventType={}",
+                "Failed to publish exchange outbox event id={}, eventId={}, eventType={}, nextAttempt={}, maxAttempts={}",
                 event.getId(),
                 event.getEventId(),
                 event.getEventType(),
+                event.getAttemptsCount() + 1,
+                maxAttempts,
                 ex
         );
 
         try {
-            withTransaction(() -> outboxEventRepository.findById(event.getId()).ifPresent(storedEvent -> {
-                if (storedEvent.getStatus() == OutboxEventStatus.PENDING) {
-                    storedEvent.incrementAttempts();
-                    outboxEventRepository.save(storedEvent);
-                }
-            }));
+            OutboxEvent updatedEvent = updateFailureState(event.getId(), failureMessage);
+            if (updatedEvent == null) {
+                return;
+            }
+
+            if (updatedEvent.getStatus() == OutboxEventStatus.TERMINAL_FAILED) {
+                exchangeAsyncMetrics.incrementTerminalFailed(event.getEventType());
+                log.error(
+                        "Marked exchange outbox event as terminally failed id={}, eventId={}, eventType={}, attempts={}, maxAttempts={}, lastError={}",
+                        updatedEvent.getId(),
+                        updatedEvent.getEventId(),
+                        updatedEvent.getEventType(),
+                        updatedEvent.getAttemptsCount(),
+                        maxAttempts,
+                        updatedEvent.getLastError()
+                );
+                return;
+            }
+
+            exchangeAsyncMetrics.incrementRetryScheduled(event.getEventType());
+            log.warn(
+                    "Scheduled retry for exchange outbox event id={}, eventId={}, eventType={}, attempts={}, maxAttempts={}",
+                    updatedEvent.getId(),
+                    updatedEvent.getEventId(),
+                    updatedEvent.getEventType(),
+                    updatedEvent.getAttemptsCount(),
+                    maxAttempts
+            );
         } catch (RuntimeException updateException) {
             log.error(
-                    "Failed to update attempts count for exchange outbox event id={}",
+                    "Failed to update publish failure state for exchange outbox event id={}",
                     event.getId(),
                     updateException
             );
         }
+    }
+
+    private OutboxEvent updateFailureState(Long outboxEventId, String failureMessage) {
+        AtomicReference<OutboxEvent> updatedEvent = new AtomicReference<>();
+        withTransaction(() -> outboxEventRepository.findById(outboxEventId).ifPresent(storedEvent -> {
+            if (storedEvent.getStatus() != OutboxEventStatus.PENDING) {
+                return;
+            }
+
+            storedEvent.recordPublishFailure(failureMessage, maxAttempts);
+            outboxEventRepository.save(storedEvent);
+            updatedEvent.set(storedEvent);
+        }));
+        return updatedEvent.get();
+    }
+
+    private String resolveFailureMessage(RuntimeException ex) {
+        Throwable current = ex;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+
+        String typeName = current.getClass().getSimpleName();
+        if (typeName == null || typeName.isBlank()) {
+            typeName = current.getClass().getName();
+        }
+
+        String message = current.getMessage();
+        if (message == null || message.isBlank()) {
+            return typeName;
+        }
+        return typeName + ": " + message;
     }
 
     private void withTransaction(Runnable action) {

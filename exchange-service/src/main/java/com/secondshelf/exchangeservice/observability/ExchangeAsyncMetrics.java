@@ -22,6 +22,14 @@ public class ExchangeAsyncMetrics {
         meterRegistry.counter("exchange.outbox.publish.errors", "event_type", safe(eventType)).increment();
     }
 
+    public void incrementRetryScheduled(String eventType) {
+        meterRegistry.counter("exchange.outbox.publish.retries", "event_type", safe(eventType)).increment();
+    }
+
+    public void incrementTerminalFailed(String eventType) {
+        meterRegistry.counter("exchange.outbox.events.terminal_failed", "event_type", safe(eventType)).increment();
+    }
+
     private String safe(String value) {
         return value == null || value.isBlank() ? "unknown" : value;
     }

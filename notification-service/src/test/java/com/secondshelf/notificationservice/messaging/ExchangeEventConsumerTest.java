@@ -2,13 +2,15 @@ package com.secondshelf.notificationservice.messaging;
 
 import com.secondshelf.notificationservice.exception.NotificationBadRequestException;
 import com.secondshelf.notificationservice.observability.CorrelationId;
+import com.secondshelf.notificationservice.observability.NotificationAsyncMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.MDC;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
+import org.springframework.amqp.ImmediateRequeueAmqpException;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -28,86 +30,121 @@ class ExchangeEventConsumerTest {
     @Mock
     private ExchangeEventNotificationService exchangeEventNotificationService;
 
-    @InjectMocks
-    private ExchangeEventConsumer exchangeEventConsumer;
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
 
     @Test
     void consumeExchangeEventShouldDelegateToService() {
-        // arrange
         ExchangeEventPayload payload = sampleEvent();
+        ExchangeEventConsumer exchangeEventConsumer = createConsumer();
 
-        // act
-        exchangeEventConsumer.consumeExchangeEvent(payload, "corr-consumer-header-123");
+        exchangeEventConsumer.consumeExchangeEvent(payload, "corr-consumer-header-123", false);
 
-        // assert
         verify(exchangeEventNotificationService).process(payload);
     }
 
     @Test
     void consumeExchangeEventShouldPopulateMdcFromHeaderAndClearAfterwards() {
-        // arrange
         ExchangeEventPayload payload = sampleEvent();
+        ExchangeEventConsumer exchangeEventConsumer = createConsumer();
         doAnswer(invocation -> {
             assertEquals("corr-consumer-header-123", MDC.get(CorrelationId.MDC_KEY));
             return null;
         }).when(exchangeEventNotificationService).process(payload);
 
-        // act
-        exchangeEventConsumer.consumeExchangeEvent(payload, "corr-consumer-header-123");
+        exchangeEventConsumer.consumeExchangeEvent(payload, "corr-consumer-header-123", false);
 
-        // assert
         assertNull(MDC.get(CorrelationId.MDC_KEY));
     }
 
     @Test
     void consumeExchangeEventShouldPopulateMdcFromPayloadWhenHeaderIsMissing() {
-        // arrange
         ExchangeEventPayload payload = sampleEvent();
+        ExchangeEventConsumer exchangeEventConsumer = createConsumer();
         doAnswer(invocation -> {
             assertEquals("corr-consumer-payload-123", MDC.get(CorrelationId.MDC_KEY));
             return null;
         }).when(exchangeEventNotificationService).process(payload);
 
-        // act
-        exchangeEventConsumer.consumeExchangeEvent(payload, null);
+        exchangeEventConsumer.consumeExchangeEvent(payload, null, false);
 
-        // assert
         assertNull(MDC.get(CorrelationId.MDC_KEY));
     }
 
     @Test
     void consumeExchangeEventShouldRejectNonRetryableBadRequest() {
-        // arrange
         ExchangeEventPayload payload = sampleEvent();
+        ExchangeEventConsumer exchangeEventConsumer = createConsumer();
         doThrow(new NotificationBadRequestException("INVALID_EXCHANGE_EVENT", "Exchange event is invalid."))
                 .when(exchangeEventNotificationService).process(payload);
 
-        // act
         AmqpRejectAndDontRequeueException exception = assertThrows(
                 AmqpRejectAndDontRequeueException.class,
-                () -> exchangeEventConsumer.consumeExchangeEvent(payload, null)
+                () -> exchangeEventConsumer.consumeExchangeEvent(payload, null, false)
         );
 
-        // assert
         assertInstanceOf(NotificationBadRequestException.class, exception.getCause());
         assertEquals("Exchange event is invalid.", exception.getMessage());
+        assertEquals(
+                1.0,
+                meterRegistry.get("notification.exchange.events.dead_lettered")
+                        .tag("event_type", "exchange.request.created")
+                        .tag("reason", "invalid")
+                        .counter()
+                        .count()
+        );
     }
 
     @Test
-    void consumeExchangeEventShouldPropagateRetryableErrors() {
-        // arrange
+    void consumeExchangeEventShouldRequeueRetryableErrorsOnFirstDelivery() {
         ExchangeEventPayload payload = sampleEvent();
+        ExchangeEventConsumer exchangeEventConsumer = createConsumer();
         RuntimeException failure = new RuntimeException("Temporary database error");
         doThrow(failure).when(exchangeEventNotificationService).process(payload);
 
-        // act
-        RuntimeException exception = assertThrows(
-                RuntimeException.class,
-                () -> exchangeEventConsumer.consumeExchangeEvent(payload, null)
+        ImmediateRequeueAmqpException exception = assertThrows(
+                ImmediateRequeueAmqpException.class,
+                () -> exchangeEventConsumer.consumeExchangeEvent(payload, null, false)
         );
 
-        // assert
-        assertSame(failure, exception);
+        assertSame(failure, exception.getCause());
+        assertEquals(
+                1.0,
+                meterRegistry.get("notification.exchange.events.retried")
+                        .tag("event_type", "exchange.request.created")
+                        .counter()
+                        .count()
+        );
+    }
+
+    @Test
+    void consumeExchangeEventShouldDeadLetterRetryableErrorsAfterRedelivery() {
+        ExchangeEventPayload payload = sampleEvent();
+        ExchangeEventConsumer exchangeEventConsumer = createConsumer();
+        RuntimeException failure = new RuntimeException("Temporary database error");
+        doThrow(failure).when(exchangeEventNotificationService).process(payload);
+
+        AmqpRejectAndDontRequeueException exception = assertThrows(
+                AmqpRejectAndDontRequeueException.class,
+                () -> exchangeEventConsumer.consumeExchangeEvent(payload, null, true)
+        );
+
+        assertSame(failure, exception.getCause());
+        assertEquals("Retries exhausted for exchange event.", exception.getMessage());
+        assertEquals(
+                1.0,
+                meterRegistry.get("notification.exchange.events.dead_lettered")
+                        .tag("event_type", "exchange.request.created")
+                        .tag("reason", "retries_exhausted")
+                        .counter()
+                        .count()
+        );
+    }
+
+    private ExchangeEventConsumer createConsumer() {
+        return new ExchangeEventConsumer(
+                exchangeEventNotificationService,
+                new NotificationAsyncMetrics(meterRegistry)
+        );
     }
 
     private ExchangeEventPayload sampleEvent() {

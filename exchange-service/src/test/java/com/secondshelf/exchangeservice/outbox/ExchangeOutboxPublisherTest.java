@@ -70,7 +70,8 @@ class ExchangeOutboxPublisherTest {
                 transactionOperations,
                 objectMapper,
                 new ExchangeAsyncMetrics(meterRegistry),
-                100L
+                100L,
+                3
         );
 
         lenient().when(exchangeRabbitProperties.getExchange()).thenReturn("exchange.events");
@@ -140,9 +141,17 @@ class ExchangeOutboxPublisherTest {
         assertEquals(1, event.getAttemptsCount());
         assertEquals(OutboxEventStatus.PENDING, event.getStatus());
         assertNull(event.getPublishedAt());
+        assertNotNull(event.getLastError());
         assertEquals(
                 1.0,
                 meterRegistry.get("exchange.outbox.publish.errors")
+                        .tag("event_type", "exchange.request.accepted")
+                        .counter()
+                        .count()
+        );
+        assertEquals(
+                1.0,
+                meterRegistry.get("exchange.outbox.publish.retries")
                         .tag("event_type", "exchange.request.accepted")
                         .counter()
                         .count()
@@ -177,6 +186,7 @@ class ExchangeOutboxPublisherTest {
         assertEquals(1, event.getAttemptsCount());
         assertEquals(OutboxEventStatus.PENDING, event.getStatus());
         assertNull(event.getPublishedAt());
+        assertNotNull(event.getLastError());
         assertEquals(
                 1.0,
                 meterRegistry.get("exchange.outbox.publish.errors")
@@ -202,6 +212,7 @@ class ExchangeOutboxPublisherTest {
         assertEquals(1, event.getAttemptsCount());
         assertEquals(OutboxEventStatus.PENDING, event.getStatus());
         assertNull(event.getPublishedAt());
+        assertNotNull(event.getLastError());
         assertEquals(
                 1.0,
                 meterRegistry.get("exchange.outbox.publish.errors")
@@ -233,9 +244,37 @@ class ExchangeOutboxPublisherTest {
         verify(outboxEventRepository).save(event);
         assertEquals(1, event.getAttemptsCount());
         assertEquals(OutboxEventStatus.PENDING, event.getStatus());
+        assertNotNull(event.getLastError());
         assertEquals(
                 1.0,
                 meterRegistry.get("exchange.outbox.publish.errors")
+                        .tag("event_type", "exchange.request.completed")
+                        .counter()
+                        .count()
+        );
+    }
+
+    @Test
+    void publishPendingEventsShouldMarkEventTerminallyFailedWhenAttemptsAreExhausted() {
+        OutboxEvent event = buildEvent("exchange.request.completed", "corr-terminal-123");
+        event.setAttemptsCount(2);
+
+        when(outboxEventRepository.findTop100ByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING))
+                .thenReturn(List.of(event));
+        when(outboxEventRepository.findById(1L)).thenReturn(Optional.of(event));
+        doThrow(new AmqpException("RabbitMQ is unavailable") {
+        }).when(rabbitTemplate).send(anyString(), anyString(), any(Message.class), any(CorrelationData.class));
+
+        exchangeOutboxPublisher.publishPendingEvents();
+
+        verify(outboxEventRepository).save(event);
+        assertEquals(3, event.getAttemptsCount());
+        assertEquals(OutboxEventStatus.TERMINAL_FAILED, event.getStatus());
+        assertNotNull(event.getFailedAt());
+        assertNotNull(event.getLastError());
+        assertEquals(
+                1.0,
+                meterRegistry.get("exchange.outbox.events.terminal_failed")
                         .tag("event_type", "exchange.request.completed")
                         .counter()
                         .count()

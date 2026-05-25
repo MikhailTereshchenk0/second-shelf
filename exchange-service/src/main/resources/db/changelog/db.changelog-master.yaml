@@ -3,3 +3,5 @@ databaseChangeLog:
       file: db/changelog/changes/001-create-exchange-requests.yaml
   - include:
       file: db/changelog/changes/002-create-outbox-events.yaml
+  - include:
+      file: db/changelog/changes/003-extend-outbox-events-for-terminal-failures.yaml

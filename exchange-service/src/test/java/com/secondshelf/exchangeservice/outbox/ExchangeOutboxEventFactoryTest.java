@@ -52,6 +52,8 @@ class ExchangeOutboxEventFactoryTest {
         assertEquals(OutboxEventStatus.PENDING, event.getStatus());
         assertEquals(0, event.getAttemptsCount());
         assertNull(event.getPublishedAt());
+        assertNull(event.getFailedAt());
+        assertNull(event.getLastError());
         assertNotNull(event.getCreatedAt());
 
         JsonNode payloadJson = objectMapper.readTree(event.getPayload());
@@ -83,13 +85,15 @@ class ExchangeOutboxEventFactoryTest {
                 .build();
 
         // act
-        event.incrementAttempts();
+        event.recordPublishFailure("Temporary RabbitMQ outage", 3);
         event.markPublished();
 
         // assert
         assertEquals(1, event.getAttemptsCount());
         assertEquals(OutboxEventStatus.PUBLISHED, event.getStatus());
         assertNotNull(event.getPublishedAt());
+        assertNull(event.getFailedAt());
+        assertNull(event.getLastError());
     }
 
     @Test
@@ -101,5 +105,20 @@ class ExchangeOutboxEventFactoryTest {
 
         assertEquals(OutboxEventStatus.PENDING, event.getStatus());
         assertNull(event.getPublishedAt());
+    }
+
+    @Test
+    void outboxEventShouldBecomeTerminallyFailedWhenAttemptsAreExhausted() {
+        OutboxEvent event = OutboxEvent.builder()
+                .status(OutboxEventStatus.PENDING)
+                .attemptsCount(2)
+                .build();
+
+        event.recordPublishFailure("RabbitMQ unavailable", 3);
+
+        assertEquals(3, event.getAttemptsCount());
+        assertEquals(OutboxEventStatus.TERMINAL_FAILED, event.getStatus());
+        assertNotNull(event.getFailedAt());
+        assertEquals("RabbitMQ unavailable", event.getLastError());
     }
 }

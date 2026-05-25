@@ -41,10 +41,14 @@ exchange:
       exchange: ${EXCHANGE_EVENTS_EXCHANGE:${EXCHANGE_OUTBOX_RABBIT_EXCHANGE:exchange.events}}
       queue: ${EXCHANGE_EVENTS_QUEUE:${EXCHANGE_OUTBOX_RABBIT_QUEUE:notification.exchange-events}}
       routing-key-pattern: ${EXCHANGE_EVENTS_ROUTING_KEY_PATTERN:${EXCHANGE_OUTBOX_RABBIT_ROUTING_KEY_PATTERN:exchange.request.*}}
+      dead-letter-exchange: ${EXCHANGE_EVENTS_DLQ_EXCHANGE:${EXCHANGE_OUTBOX_RABBIT_DLQ_EXCHANGE:}}
+      dead-letter-queue: ${EXCHANGE_EVENTS_DLQ_QUEUE:${EXCHANGE_OUTBOX_RABBIT_DLQ_QUEUE:}}
+      dead-letter-routing-key: ${EXCHANGE_EVENTS_DLQ_ROUTING_KEY:${EXCHANGE_OUTBOX_RABBIT_DLQ_ROUTING_KEY:}}
     publisher:
       enabled: ${EXCHANGE_OUTBOX_PUBLISHER_ENABLED:true}
       fixed-delay-ms: ${EXCHANGE_OUTBOX_PUBLISHER_FIXED_DELAY_MS:5000}
       confirm-timeout-ms: ${EXCHANGE_OUTBOX_PUBLISHER_CONFIRM_TIMEOUT_MS:10000}
+      max-attempts: ${EXCHANGE_OUTBOX_PUBLISHER_MAX_ATTEMPTS:5}
 
 jwt:
   secret: ${JWT_SECRET:change_this_secret_to_something_long_and_random_1234567890_change_me}

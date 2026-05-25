@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @DataJpaTest(properties = {
@@ -66,6 +67,8 @@ class ExchangeOutboxServiceJpaTest {
         assertNotNull(savedEvent.getId());
         assertEquals(OutboxEventStatus.PENDING, savedEvent.getStatus());
         assertEquals(0, savedEvent.getAttemptsCount());
+        assertNull(savedEvent.getFailedAt());
+        assertNull(savedEvent.getLastError());
         assertEquals("EXCHANGE_REQUEST", savedEvent.getAggregateType());
         assertEquals("101", savedEvent.getAggregateId());
         assertEquals("exchange.request.accepted", savedEvent.getEventType());

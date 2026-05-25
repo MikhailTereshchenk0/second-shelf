@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.Declarables;
+import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.core.TopicExchange;
@@ -12,6 +13,7 @@ import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -26,11 +28,26 @@ public class RabbitMqConfig {
 
     @Bean
     public Queue exchangeEventNotificationsQueue(ExchangeRabbitProperties properties) {
-        return QueueBuilder.durable(properties.getQueue()).build();
+        return QueueBuilder.durable(properties.getQueue())
+                .deadLetterExchange(properties.resolveDeadLetterExchange())
+                .deadLetterRoutingKey(properties.resolveDeadLetterRoutingKey())
+                .build();
     }
 
     @Bean
-    public Binding exchangeEventNotificationsBinding(Queue exchangeEventNotificationsQueue,
+    public DirectExchange exchangeEventsDeadLetterExchange(ExchangeRabbitProperties properties) {
+        return new DirectExchange(properties.resolveDeadLetterExchange(), true, false);
+    }
+
+    @Bean
+    public Queue exchangeEventNotificationsDeadLetterQueue(ExchangeRabbitProperties properties) {
+        return QueueBuilder.durable(properties.resolveDeadLetterQueue()).build();
+    }
+
+    @Bean
+    public Binding exchangeEventNotificationsBinding(
+                                                     @Qualifier("exchangeEventNotificationsQueue")
+                                                     Queue exchangeEventNotificationsQueue,
                                                      TopicExchange exchangeEventsExchange,
                                                      ExchangeRabbitProperties properties) {
         return BindingBuilder.bind(exchangeEventNotificationsQueue)
@@ -39,13 +56,37 @@ public class RabbitMqConfig {
     }
 
     @Bean
-    public Declarables exchangeEventTopology(TopicExchange exchangeEventsExchange,
+    public Binding exchangeEventNotificationsDeadLetterBinding(
+                                                               @Qualifier("exchangeEventNotificationsDeadLetterQueue")
+                                                               Queue exchangeEventNotificationsDeadLetterQueue,
+                                                               @Qualifier("exchangeEventsDeadLetterExchange")
+                                                               DirectExchange exchangeEventsDeadLetterExchange,
+                                                               ExchangeRabbitProperties properties) {
+        return BindingBuilder.bind(exchangeEventNotificationsDeadLetterQueue)
+                .to(exchangeEventsDeadLetterExchange)
+                .with(properties.resolveDeadLetterRoutingKey());
+    }
+
+    @Bean
+    public Declarables exchangeEventTopology(
+                                             TopicExchange exchangeEventsExchange,
+                                             @Qualifier("exchangeEventNotificationsQueue")
                                              Queue exchangeEventNotificationsQueue,
-                                             Binding exchangeEventNotificationsBinding) {
+                                             @Qualifier("exchangeEventNotificationsBinding")
+                                             Binding exchangeEventNotificationsBinding,
+                                             @Qualifier("exchangeEventsDeadLetterExchange")
+                                             DirectExchange exchangeEventsDeadLetterExchange,
+                                             @Qualifier("exchangeEventNotificationsDeadLetterQueue")
+                                             Queue exchangeEventNotificationsDeadLetterQueue,
+                                             @Qualifier("exchangeEventNotificationsDeadLetterBinding")
+                                             Binding exchangeEventNotificationsDeadLetterBinding) {
         return new Declarables(
                 exchangeEventsExchange,
                 exchangeEventNotificationsQueue,
-                exchangeEventNotificationsBinding
+                exchangeEventNotificationsBinding,
+                exchangeEventsDeadLetterExchange,
+                exchangeEventNotificationsDeadLetterQueue,
+                exchangeEventNotificationsDeadLetterBinding
         );
     }
 

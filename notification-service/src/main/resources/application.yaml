@@ -30,6 +30,9 @@ notification:
     exchange: ${EXCHANGE_EVENTS_EXCHANGE:${NOTIFICATION_RABBIT_EXCHANGE:exchange.events}}
     queue: ${EXCHANGE_EVENTS_QUEUE:${NOTIFICATION_RABBIT_QUEUE:notification.exchange-events}}
     routing-key-pattern: ${EXCHANGE_EVENTS_ROUTING_KEY_PATTERN:${NOTIFICATION_RABBIT_ROUTING_KEY_PATTERN:exchange.request.*}}
+    dead-letter-exchange: ${EXCHANGE_EVENTS_DLQ_EXCHANGE:${NOTIFICATION_RABBIT_DLQ_EXCHANGE:}}
+    dead-letter-queue: ${EXCHANGE_EVENTS_DLQ_QUEUE:${NOTIFICATION_RABBIT_DLQ_QUEUE:}}
+    dead-letter-routing-key: ${EXCHANGE_EVENTS_DLQ_ROUTING_KEY:${NOTIFICATION_RABBIT_DLQ_ROUTING_KEY:}}
 
 jwt:
   secret: ${JWT_SECRET:change_this_secret_to_something_long_and_random_1234567890_change_me}

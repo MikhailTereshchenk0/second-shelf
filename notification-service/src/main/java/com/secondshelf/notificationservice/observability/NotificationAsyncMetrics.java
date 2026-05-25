@@ -22,6 +22,18 @@ public class NotificationAsyncMetrics {
         ).increment();
     }
 
+    public void incrementRetried(String eventType) {
+        meterRegistry.counter("notification.exchange.events.retried", "event_type", safe(eventType)).increment();
+    }
+
+    public void incrementDeadLettered(String eventType, String reason) {
+        meterRegistry.counter(
+                "notification.exchange.events.dead_lettered",
+                "event_type", safe(eventType),
+                "reason", safe(reason)
+        ).increment();
+    }
+
     private String safe(String value) {
         return value == null || value.isBlank() ? "unknown" : value;
     }
