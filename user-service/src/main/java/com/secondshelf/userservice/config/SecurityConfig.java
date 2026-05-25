@@ -1,7 +1,9 @@
 package com.secondshelf.userservice.config;
 
 import com.secondshelf.userservice.security.JwtAuthenticationFilter;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -16,28 +18,57 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @RequiredArgsConstructor
 public class SecurityConfig {
 
+    private static final String[] PUBLIC_ACTUATOR_ENDPOINTS = {
+            "/error",
+            "/actuator/health",
+            "/actuator/health/liveness",
+            "/actuator/health/readiness",
+            "/actuator/info"
+    };
+    private static final String[] DOCS_ENDPOINTS = {
+            "/v3/api-docs",
+            "/v3/api-docs/**",
+            "/swagger-ui.html",
+            "/swagger-ui/**"
+    };
+    private static final String[] ADMIN_MONITORING_ENDPOINTS = {
+            "/actuator/metrics",
+            "/actuator/metrics/**",
+            "/actuator/health/**"
+    };
+
     private final InternalTokenFilter internalTokenFilter;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    @Value("${app.security.public-docs-enabled:false}")
+    private boolean publicDocsEnabled;
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(
-                                "/actuator/health",
-                                "/actuator/health/**",
-                                "/actuator/info",
-                                "/v3/api-docs/**",
-                                "/swagger-ui.html",
-                                "/swagger-ui/**"
-                        ).permitAll()
-                        .requestMatchers("/internal/**").hasAuthority(InternalTokenFilter.AUTHORITY)
-                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/api/v1/users/**").authenticated()
-                        .anyRequest().permitAll()
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((request, response, authException) ->
+                                response.sendError(HttpServletResponse.SC_UNAUTHORIZED))
+                        .accessDeniedHandler((request, response, accessDeniedException) ->
+                                response.sendError(HttpServletResponse.SC_FORBIDDEN))
                 )
+                .authorizeHttpRequests(auth -> {
+                    auth.requestMatchers(PUBLIC_ACTUATOR_ENDPOINTS).permitAll();
+
+                    if (publicDocsEnabled) {
+                        auth.requestMatchers(DOCS_ENDPOINTS).permitAll();
+                    } else {
+                        auth.requestMatchers(DOCS_ENDPOINTS).denyAll();
+                    }
+
+                    auth.requestMatchers(ADMIN_MONITORING_ENDPOINTS).hasRole("ADMIN");
+                    auth.requestMatchers("/internal/**").hasAuthority(InternalTokenFilter.AUTHORITY);
+                    auth.requestMatchers("/api/v1/admin/**").hasRole("ADMIN");
+                    auth.requestMatchers("/api/v1/users/**").authenticated();
+                    auth.anyRequest().denyAll();
+                })
                 .addFilterBefore(internalTokenFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .httpBasic(AbstractHttpConfigurer::disable)

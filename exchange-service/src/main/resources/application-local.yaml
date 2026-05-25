@@ -5,6 +5,10 @@ spring:
     username: ${RABBITMQ_USERNAME:guest}
     password: ${RABBITMQ_PASSWORD:guest}
 
+app:
+  security:
+    public-docs-enabled: true
+
 internal:
   token: ${INTERNAL_TOKEN:internal-secret-123}
 

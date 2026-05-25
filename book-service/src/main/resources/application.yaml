@@ -24,6 +24,10 @@ spring:
 internal:
   token: ${INTERNAL_TOKEN:}
 
+app:
+  security:
+    public-docs-enabled: false
+
 jwt:
   secret: ${JWT_SECRET:}
 
@@ -44,7 +48,10 @@ management:
       enabled: true
 
 springdoc:
+  api-docs:
+    enabled: ${app.security.public-docs-enabled:false}
   swagger-ui:
+    enabled: ${app.security.public-docs-enabled:false}
     path: /swagger-ui.html
     operations-sorter: method
     tags-sorter: alpha
