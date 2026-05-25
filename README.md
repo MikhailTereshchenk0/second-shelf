@@ -7,6 +7,10 @@ authentication for public APIs, `X-Internal-Token` protection for private
 service APIs, RabbitMQ delivery for exchange domain events, and persisted
 in-app notifications built through the outbox pattern.
 
+## Documentation
+
+- [Security documentation pack](docs/security/README.md)
+
 ## Project Structure
 
 | Service | Port | Responsibility | Database |
@@ -55,10 +59,13 @@ Maven root modules:
   `notification-service` validate JWTs locally with the shared `JWT_SECRET`.
   There is no central token introspection endpoint.
 - Refresh tokens are not stored in plain text. `auth-service` stores only
-  SHA-256 hashes in `auth_db.refresh_tokens`.
+  HMAC-SHA-256 hashes protected with server-side pepper in
+  `auth_db.refresh_tokens`.
 - Refresh rotates the token pair: the previous refresh token is revoked, a new
-  refresh token is persisted, and a new access token is minted from current
-  claims loaded from `user-service`.
+  refresh token is persisted in the same token family, and a new access token
+  is minted from current claims loaded from `user-service`.
+- Reuse of an already revoked refresh token marks the family for audit and
+  revokes all still-active refresh tokens in that family.
 - Disabled users cannot log in, and refresh is additionally blocked if
   `user-service` reports `enabled = false`.
 - Internal HTTP APIs are protected by header `X-Internal-Token` and hidden from
@@ -290,7 +297,8 @@ schema.
 ### `auth-service` -> `auth_db`
 
 - `refresh_tokens`: `token_hash`, `user_id`, `expires_at`, `revoked_at`,
-  `created_at`.
+  `created_at`, `token_family_id`, `replaced_by_hash`, `reuse_detected_at`,
+  `user_agent`, `last_used_at`.
 
 ### `book-service` -> `books_db`
 
@@ -492,6 +500,18 @@ configuration; when omitted, the services use the defaults documented below.
 | `JWT_SECRET` | Shared HMAC secret for JWT signing and validation. |
 | `JWT_ACCESS_EXPIRATION_MS` | Access token lifetime in milliseconds. |
 | `JWT_REFRESH_EXPIRATION_MS` | Refresh token lifetime in milliseconds. |
+| `AUTH_REFRESH_TOKEN_PEPPER` | Server-side pepper for refresh token HMAC hashing; required outside the `local` Spring profile. |
+
+Registration in `auth-service` and internal user creation in `user-service`
+share the same password policy:
+
+- length from `10` to `100` characters;
+- at least one lowercase letter;
+- at least one uppercase letter;
+- at least one digit;
+- at least one special character;
+- no whitespace;
+- must not contain the `username` or the email local-part.
 
 ### PostgreSQL
 
@@ -548,7 +568,7 @@ configuration; when omitted, the services use the defaults documented below.
 | Variable | Purpose |
 | --- | --- |
 | `SEED_ADMIN_USERNAME` | Admin username created on startup if it does not exist. |
-| `SEED_ADMIN_PASSWORD` | Admin password created on startup if it does not exist. |
+| `SEED_ADMIN_PASSWORD` | Admin password created on startup if it does not exist. In non-`local` profiles it must satisfy the same password policy as regular user registration. |
 | `SEED_ADMIN_EMAIL` | Admin email created on startup if it does not exist. |
 
 ### Exchange Outbox Publisher Tuning

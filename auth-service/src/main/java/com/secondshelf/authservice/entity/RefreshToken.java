@@ -7,8 +7,9 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "refresh_tokens", indexes = {
-        @Index(name = "idx_refresh_token_hash", columnList = "tokenHash", unique = true),
-        @Index(name = "idx_refresh_user_id", columnList = "userId")
+        @Index(name = "idx_refresh_token_hash", columnList = "token_hash", unique = true),
+        @Index(name = "idx_refresh_user_id", columnList = "user_id"),
+        @Index(name = "idx_refresh_token_family_id", columnList = "token_family_id")
 })
 @Getter
 @Setter
@@ -20,18 +21,34 @@ public class RefreshToken {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 64, unique = true)
-    private String tokenHash; // sha-256 hex
+    @Column(name = "token_hash", nullable = false, length = 64, unique = true)
+    private String tokenHash; // HMAC-SHA-256 hex
 
-    @Column(nullable = false)
+    @Column(name = "token_family_id", nullable = false, length = 36)
+    private String tokenFamilyId;
+
+    @Column(name = "replaced_by_hash", length = 64)
+    private String replacedByHash;
+
+    @Column(name = "reuse_detected_at")
+    private LocalDateTime reuseDetectedAt;
+
+    @Column(name = "user_agent", length = 512)
+    private String userAgent;
+
+    @Column(name = "user_id", nullable = false)
     private Long userId;
 
-    @Column(nullable = false)
+    @Column(name = "expires_at", nullable = false)
     private LocalDateTime expiresAt;
 
+    @Column(name = "revoked_at")
     private LocalDateTime revokedAt;
 
-    @Column(nullable = false)
+    @Column(name = "last_used_at")
+    private LocalDateTime lastUsedAt;
+
+    @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
     @PrePersist

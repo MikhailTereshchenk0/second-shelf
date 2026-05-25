@@ -13,8 +13,19 @@ import java.util.Optional;
 public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long> {
     Optional<RefreshToken> findByTokenHash(String tokenHash);
     List<RefreshToken> findAllByUserIdAndRevokedAtIsNull(Long userId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from RefreshToken t where t.tokenHash = :hash")
     Optional<RefreshToken> findByTokenHashForUpdate(@Param("hash") String hash);
-}
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select t
+            from RefreshToken t
+            where t.tokenFamilyId = :tokenFamilyId
+              and t.revokedAt is null
+            """)
+    List<RefreshToken> findAllByTokenFamilyIdAndRevokedAtIsNullForUpdate(
+            @Param("tokenFamilyId") String tokenFamilyId
+    );
+}

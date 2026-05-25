@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.secondshelf.authservice.config.SecurityConfig;
 import com.secondshelf.authservice.dto.LoginRequest;
 import com.secondshelf.authservice.dto.RefreshRequest;
+import com.secondshelf.authservice.dto.RegisterRequest;
 import com.secondshelf.authservice.dto.TokenPairResponse;
 import com.secondshelf.authservice.exception.handler.GlobalExceptionHandler;
 import com.secondshelf.authservice.security.JwtAuthenticationFilter;
@@ -44,6 +45,71 @@ class AuthControllerTest {
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
+
+    @Test
+    void registerShouldAcceptStrongPassword() throws Exception {
+        RegisterRequest request = new RegisterRequest();
+        request.setUsername("alice");
+        request.setEmail("alice.reader@example.com");
+        request.setFirstName("Alice");
+        request.setLastName("Reader");
+        request.setPassword("V3ry$trongPwd");
+
+        TokenPairResponse response = new TokenPairResponse(
+                "access-token",
+                "refresh-token",
+                "Bearer"
+        );
+
+        when(authService.register(any(RegisterRequest.class))).thenReturn(response);
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").value("access-token"))
+                .andExpect(jsonPath("$.refreshToken").value("refresh-token"))
+                .andExpect(jsonPath("$.tokenType").value("Bearer"));
+
+        verify(authService).register(any(RegisterRequest.class));
+    }
+
+    @Test
+    void registerShouldRejectWeakPassword() throws Exception {
+        RegisterRequest request = new RegisterRequest();
+        request.setUsername("alice");
+        request.setEmail("alice.reader@example.com");
+        request.setFirstName("Alice");
+        request.setLastName("Reader");
+        request.setPassword("weakpass12");
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message").value("Request validation failed"))
+                .andExpect(jsonPath("$.details.password")
+                        .value("Password must contain at least one uppercase letter."));
+    }
+
+    @Test
+    void registerShouldRejectPasswordContainingUsernameOrEmailLocalPart() throws Exception {
+        RegisterRequest request = new RegisterRequest();
+        request.setUsername("alice");
+        request.setEmail("reader@example.com");
+        request.setFirstName("Alice");
+        request.setLastName("Reader");
+        request.setPassword("Sup3r!alicePwd");
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message").value("Request validation failed"))
+                .andExpect(jsonPath("$.details.password").value("Password must not contain username."));
+    }
 
     @Test
     void loginShouldReturnTokenPairWhenRequestIsValid() throws Exception {

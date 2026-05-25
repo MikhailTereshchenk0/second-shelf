@@ -1,11 +1,13 @@
 package com.secondshelf.authservice.dto;
 
+import com.secondshelf.authservice.validation.password.ValidPasswordPolicy;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 @Data
+@ValidPasswordPolicy
 public class RegisterRequest {
 
     @NotBlank @Size(min = 3, max = 50)
@@ -26,6 +28,6 @@ public class RegisterRequest {
     @Size(max = 1000)
     private String about;
 
-    @NotBlank @Size(min = 6, max = 100)
+    @NotBlank
     private String password;
 }

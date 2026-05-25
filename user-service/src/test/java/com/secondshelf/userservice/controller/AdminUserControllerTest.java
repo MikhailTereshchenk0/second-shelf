@@ -3,7 +3,7 @@ package com.secondshelf.userservice.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.secondshelf.userservice.config.InternalTokenFilter;
 import com.secondshelf.userservice.config.SecurityConfig;
-import com.secondshelf.userservice.dto.UserProfileResponse;
+import com.secondshelf.userservice.dto.PrivateUserProfileResponse;
 import com.secondshelf.userservice.entity.Role;
 import com.secondshelf.userservice.exception.UserNotFoundException;
 import com.secondshelf.userservice.exception.handler.GlobalExceptionHandler;
@@ -18,6 +18,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.LocalDateTime;
 import java.util.Set;
 
 import static org.mockito.ArgumentMatchers.eq;
@@ -46,24 +47,27 @@ class AdminUserControllerTest {
 
     @Test
     void blockShouldReturnUserProfileForAdmin() throws Exception {
-        // arrange
-        UserProfileResponse response = UserProfileResponse.builder()
+        PrivateUserProfileResponse response = PrivateUserProfileResponse.builder()
                 .id(10L)
                 .username("blocked-user")
+                .email("blocked@example.com")
                 .firstName("Blocked")
                 .lastName("User")
-                .email("blocked@example.com")
+                .roles(Set.of(Role.ROLE_USER))
+                .enabled(false)
+                .createdAt(LocalDateTime.of(2024, 1, 2, 3, 4))
                 .build();
 
         when(adminUserService.block(10L)).thenReturn(response);
 
-        // act + assert
         mockMvc.perform(put("/api/v1/admin/users/10/block")
                         .with(SecurityMockMvcRequestPostProcessors.user("admin").roles("ADMIN")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(10))
                 .andExpect(jsonPath("$.username").value("blocked-user"))
-                .andExpect(jsonPath("$.email").value("blocked@example.com"));
+                .andExpect(jsonPath("$.email").value("blocked@example.com"))
+                .andExpect(jsonPath("$.roles[0]").value("ROLE_USER"))
+                .andExpect(jsonPath("$.enabled").value(false));
 
         verify(adminUserService).block(10L);
     }
@@ -77,11 +81,35 @@ class AdminUserControllerTest {
     }
 
     @Test
+    void unblockShouldReturnPrivateProfileForAdmin() throws Exception {
+        PrivateUserProfileResponse response = PrivateUserProfileResponse.builder()
+                .id(77L)
+                .username("restored-user")
+                .email("restored@example.com")
+                .firstName("Restored")
+                .lastName("User")
+                .roles(Set.of(Role.ROLE_USER))
+                .enabled(true)
+                .createdAt(LocalDateTime.of(2023, 5, 6, 7, 8))
+                .build();
+
+        when(adminUserService.unblock(77L)).thenReturn(response);
+
+        mockMvc.perform(put("/api/v1/admin/users/77/unblock")
+                        .with(SecurityMockMvcRequestPostProcessors.user("admin").roles("ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(77))
+                .andExpect(jsonPath("$.email").value("restored@example.com"))
+                .andExpect(jsonPath("$.firstName").value("Restored"))
+                .andExpect(jsonPath("$.enabled").value(true));
+
+        verify(adminUserService).unblock(77L);
+    }
+
+    @Test
     void unblockShouldReturnNotFoundWhenUserDoesNotExist() throws Exception {
-        // arrange
         when(adminUserService.unblock(77L)).thenThrow(new UserNotFoundException(77L));
 
-        // act + assert
         mockMvc.perform(put("/api/v1/admin/users/77/unblock")
                         .with(SecurityMockMvcRequestPostProcessors.user("admin").roles("ADMIN")))
                 .andExpect(status().isNotFound())
@@ -91,14 +119,12 @@ class AdminUserControllerTest {
 
     @Test
     void updateRolesShouldValidateRequestBody() throws Exception {
-        // arrange
         String requestBody = """
                 {
                   "roles": []
                 }
                 """;
 
-        // act + assert
         mockMvc.perform(put("/api/v1/admin/users/15/roles")
                         .with(SecurityMockMvcRequestPostProcessors.user("admin").roles("ADMIN"))
                         .contentType(APPLICATION_JSON)
@@ -111,10 +137,14 @@ class AdminUserControllerTest {
 
     @Test
     void updateRolesShouldPassRolesToServiceForAdmin() throws Exception {
-        // arrange
-        UserProfileResponse response = UserProfileResponse.builder()
+        PrivateUserProfileResponse response = PrivateUserProfileResponse.builder()
                 .id(15L)
                 .username("alice")
+                .email("alice@example.com")
+                .firstName("Alice")
+                .lastName("Admin")
+                .roles(Set.of(Role.ROLE_ADMIN))
+                .enabled(true)
                 .build();
 
         String requestBody = objectMapper.writeValueAsString(
@@ -123,14 +153,17 @@ class AdminUserControllerTest {
 
         when(adminUserService.updateRoles(eq(15L), eq(Set.of(Role.ROLE_ADMIN)))).thenReturn(response);
 
-        // act + assert
         mockMvc.perform(put("/api/v1/admin/users/15/roles")
                         .with(SecurityMockMvcRequestPostProcessors.user("admin").roles("ADMIN"))
                         .contentType(APPLICATION_JSON)
                         .content(requestBody))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(15))
-                .andExpect(jsonPath("$.username").value("alice"));
+                .andExpect(jsonPath("$.username").value("alice"))
+                .andExpect(jsonPath("$.email").value("alice@example.com"))
+                .andExpect(jsonPath("$.firstName").value("Alice"))
+                .andExpect(jsonPath("$.roles[0]").value("ROLE_ADMIN"))
+                .andExpect(jsonPath("$.enabled").value(true));
 
         verify(adminUserService).updateRoles(15L, Set.of(Role.ROLE_ADMIN));
     }

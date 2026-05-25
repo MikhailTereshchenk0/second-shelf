@@ -1,0 +1,38 @@
+databaseChangeLog:
+  - changeSet:
+      id: 002-extend-refresh-tokens-for-rotation-security
+      author: Codex
+      changes:
+        - addColumn:
+            tableName: refresh_tokens
+            columns:
+              - column:
+                  name: token_family_id
+                  type: VARCHAR(36)
+              - column:
+                  name: replaced_by_hash
+                  type: VARCHAR(64)
+              - column:
+                  name: reuse_detected_at
+                  type: TIMESTAMP
+              - column:
+                  name: user_agent
+                  type: VARCHAR(512)
+              - column:
+                  name: last_used_at
+                  type: TIMESTAMP
+
+        - sql:
+            sql: UPDATE refresh_tokens SET token_family_id = token_hash WHERE token_family_id IS NULL
+
+        - addNotNullConstraint:
+            tableName: refresh_tokens
+            columnName: token_family_id
+            columnDataType: VARCHAR(36)
+
+        - createIndex:
+            tableName: refresh_tokens
+            indexName: idx_refresh_token_family_id
+            columns:
+              - column:
+                  name: token_family_id

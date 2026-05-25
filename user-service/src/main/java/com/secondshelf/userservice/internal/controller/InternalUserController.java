@@ -1,7 +1,7 @@
 package com.secondshelf.userservice.internal.controller;
 
 import com.secondshelf.userservice.dto.CreateUserProfileRequest;
-import com.secondshelf.userservice.dto.UserProfileResponse;
+import com.secondshelf.userservice.dto.PrivateUserProfileResponse;
 import com.secondshelf.userservice.exception.UserNotFoundException;
 import com.secondshelf.userservice.internal.dto.UserClaimsResponse;
 import com.secondshelf.userservice.repository.UserRepository;
@@ -23,7 +23,7 @@ public class InternalUserController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public UserProfileResponse createProfile(@Valid @RequestBody CreateUserProfileRequest request) {
+    public PrivateUserProfileResponse createProfile(@Valid @RequestBody CreateUserProfileRequest request) {
         return userService.createProfile(request);
     }
 
