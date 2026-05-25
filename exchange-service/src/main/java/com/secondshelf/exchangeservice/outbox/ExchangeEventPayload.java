@@ -10,15 +10,23 @@ import java.util.UUID;
 @Value
 @Builder
 public class ExchangeEventPayload {
+    Integer schemaVersion;
     UUID eventId;
     String correlationId;
     String eventType;
     LocalDateTime occurredAt;
     Long exchangeRequestId;
+    Long initiatorUserId;
+    String initiatorUsername;
     Long requesterId;
     Long ownerId;
     Long requestedBookId;
+    String requestedBookTitle;
+    String requestedBookAuthor;
     Long offeredBookId;
+    String offeredBookTitle;
+    String offeredBookAuthor;
+    String requestMessage;
     Long completedByUserId;
     ExchangeStatus status;
     LocalDateTime ownerCompletionConfirmedAt;

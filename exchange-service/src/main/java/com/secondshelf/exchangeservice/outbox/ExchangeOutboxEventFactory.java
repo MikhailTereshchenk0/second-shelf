@@ -21,11 +21,12 @@ import java.util.UUID;
 public class ExchangeOutboxEventFactory {
 
     private static final String EXCHANGE_REQUEST_AGGREGATE_TYPE = "EXCHANGE_REQUEST";
+    private static final int SCHEMA_VERSION = 2;
 
     private final ObjectMapper objectMapper;
     private final ExchangeAsyncMetrics exchangeAsyncMetrics;
 
-    public OutboxEvent create(ExchangeEventType eventType, ExchangeRequest exchangeRequest, Long completedByUserId) {
+    public OutboxEvent create(ExchangeEventType eventType, ExchangeRequest exchangeRequest, ExchangeEventContext eventContext) {
         Objects.requireNonNull(eventType, "eventType must not be null");
         Objects.requireNonNull(exchangeRequest, "exchangeRequest must not be null");
         Objects.requireNonNull(exchangeRequest.getId(), "Exchange request must contain id before outbox event creation.");
@@ -35,16 +36,24 @@ public class ExchangeOutboxEventFactory {
             LocalDateTime occurredAt = LocalDateTime.now();
             String correlationId = CorrelationId.currentOrGenerate();
             ExchangeEventPayload payload = ExchangeEventPayload.builder()
+                    .schemaVersion(SCHEMA_VERSION)
                     .eventId(eventId)
                     .correlationId(correlationId)
                     .eventType(eventType.getValue())
                     .occurredAt(occurredAt)
                     .exchangeRequestId(exchangeRequest.getId())
+                    .initiatorUserId(eventContext != null ? eventContext.getInitiatorUserId() : null)
+                    .initiatorUsername(eventContext != null ? eventContext.getInitiatorUsername() : null)
                     .requesterId(exchangeRequest.getRequesterId())
                     .ownerId(exchangeRequest.getOwnerId())
                     .requestedBookId(exchangeRequest.getRequestedBookId())
+                    .requestedBookTitle(exchangeRequest.getRequestedBookTitle())
+                    .requestedBookAuthor(exchangeRequest.getRequestedBookAuthor())
                     .offeredBookId(exchangeRequest.getOfferedBookId())
-                    .completedByUserId(completedByUserId)
+                    .offeredBookTitle(exchangeRequest.getOfferedBookTitle())
+                    .offeredBookAuthor(exchangeRequest.getOfferedBookAuthor())
+                    .requestMessage(exchangeRequest.getMessage())
+                    .completedByUserId(eventContext != null ? eventContext.getCompletedByUserId() : null)
                     .status(exchangeRequest.getStatus())
                     .ownerCompletionConfirmedAt(exchangeRequest.getOwnerCompletionConfirmedAt())
                     .requesterCompletionConfirmedAt(exchangeRequest.getRequesterCompletionConfirmedAt())

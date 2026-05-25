@@ -31,16 +31,28 @@ class ExchangeOutboxEventFactoryTest {
         ExchangeRequest exchangeRequest = ExchangeRequest.builder()
                 .id(42L)
                 .requestedBookId(100L)
+                .requestedBookTitle("The Left Hand of Darkness")
+                .requestedBookAuthor("Ursula K. Le Guin")
                 .offeredBookId(200L)
+                .offeredBookTitle("Dune")
+                .offeredBookAuthor("Frank Herbert")
                 .ownerId(55L)
                 .requesterId(77L)
                 .status(ExchangeStatus.ACCEPTED)
+                .message("Happy to swap this weekend.")
                 .build();
 
         // act
         OutboxEvent event;
         try (CorrelationId.Scope ignored = CorrelationId.openScope("corr-exchange-123")) {
-            event = factory.create(ExchangeEventType.EXCHANGE_REQUEST_ACCEPTED, exchangeRequest, null);
+            event = factory.create(
+                    ExchangeEventType.EXCHANGE_REQUEST_ACCEPTED,
+                    exchangeRequest,
+                    ExchangeEventContext.builder()
+                            .initiatorUserId(55L)
+                            .initiatorUsername("owner")
+                            .build()
+            );
         }
 
         // assert
@@ -57,14 +69,22 @@ class ExchangeOutboxEventFactoryTest {
         assertNotNull(event.getCreatedAt());
 
         JsonNode payloadJson = objectMapper.readTree(event.getPayload());
+        assertEquals(2, payloadJson.get("schemaVersion").asInt());
         assertEquals(event.getEventId().toString(), payloadJson.get("eventId").asText());
         assertEquals("corr-exchange-123", payloadJson.get("correlationId").asText());
         assertEquals("exchange.request.accepted", payloadJson.get("eventType").asText());
         assertEquals(42L, payloadJson.get("exchangeRequestId").asLong());
+        assertEquals(55L, payloadJson.get("initiatorUserId").asLong());
+        assertEquals("owner", payloadJson.get("initiatorUsername").asText());
         assertEquals(100L, payloadJson.get("requestedBookId").asLong());
+        assertEquals("The Left Hand of Darkness", payloadJson.get("requestedBookTitle").asText());
+        assertEquals("Ursula K. Le Guin", payloadJson.get("requestedBookAuthor").asText());
         assertEquals(200L, payloadJson.get("offeredBookId").asLong());
+        assertEquals("Dune", payloadJson.get("offeredBookTitle").asText());
+        assertEquals("Frank Herbert", payloadJson.get("offeredBookAuthor").asText());
         assertEquals(77L, payloadJson.get("requesterId").asLong());
         assertEquals(55L, payloadJson.get("ownerId").asLong());
+        assertEquals("Happy to swap this weekend.", payloadJson.get("requestMessage").asText());
         assertEquals("ACCEPTED", payloadJson.get("status").asText());
         assertTrue(payloadJson.get("completedByUserId").isNull());
         assertTrue(payloadJson.get("ownerCompletionConfirmedAt").isNull());

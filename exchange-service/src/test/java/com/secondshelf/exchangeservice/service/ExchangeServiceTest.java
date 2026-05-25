@@ -10,6 +10,7 @@ import com.secondshelf.exchangeservice.exception.ExchangeBadRequestException;
 import com.secondshelf.exchangeservice.exception.ExchangeConflictException;
 import com.secondshelf.exchangeservice.exception.ExchangeForbiddenException;
 import com.secondshelf.exchangeservice.exception.ExchangeNotFoundException;
+import com.secondshelf.exchangeservice.outbox.ExchangeEventContext;
 import com.secondshelf.exchangeservice.outbox.ExchangeEventType;
 import com.secondshelf.exchangeservice.outbox.ExchangeOutboxService;
 import com.secondshelf.exchangeservice.repository.ExchangeRepository;
@@ -59,12 +60,16 @@ class ExchangeServiceTest {
         BookDto requestedBook = new BookDto();
         requestedBook.setId(100L);
         requestedBook.setOwnerId(55L);
+        requestedBook.setTitle("The Left Hand of Darkness");
+        requestedBook.setAuthor("Ursula K. Le Guin");
         requestedBook.setVisibility("PUBLIC");
         requestedBook.setStatus("AVAILABLE");
 
         BookDto offeredBook = new BookDto();
         offeredBook.setId(200L);
         offeredBook.setOwnerId(42L);
+        offeredBook.setTitle("Dune");
+        offeredBook.setAuthor("Frank Herbert");
         offeredBook.setVisibility("PUBLIC");
         offeredBook.setStatus("AVAILABLE");
 
@@ -104,12 +109,20 @@ class ExchangeServiceTest {
         ExchangeRequest savedRequest = exchangeCaptor.getValue();
         assertEquals(100L, savedRequest.getRequestedBookId());
         assertEquals(200L, savedRequest.getOfferedBookId());
+        assertEquals("The Left Hand of Darkness", savedRequest.getRequestedBookTitle());
+        assertEquals("Ursula K. Le Guin", savedRequest.getRequestedBookAuthor());
+        assertEquals("Dune", savedRequest.getOfferedBookTitle());
+        assertEquals("Frank Herbert", savedRequest.getOfferedBookAuthor());
         assertEquals(55L, savedRequest.getOwnerId());
         assertEquals(42L, savedRequest.getRequesterId());
         assertEquals(ExchangeStatus.PENDING, savedRequest.getStatus());
         assertEquals("I would like to exchange this book.", savedRequest.getMessage());
 
-        verify(exchangeOutboxService).recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_CREATED, savedRequest);
+        verify(exchangeOutboxService).recordExchangeEvent(
+                ExchangeEventType.EXCHANGE_REQUEST_CREATED,
+                savedRequest,
+                eventContext(42L, "alice")
+        );
     }
 
     @Test
@@ -428,7 +441,11 @@ class ExchangeServiceTest {
         verify(exchangeRepository, never()).saveAll(anyList());
         verify(exchangeRepository).save(request);
         assertEquals(ExchangeStatus.ACCEPTED, request.getStatus());
-        verify(exchangeOutboxService).recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_ACCEPTED, request);
+        verify(exchangeOutboxService).recordExchangeEvent(
+                ExchangeEventType.EXCHANGE_REQUEST_ACCEPTED,
+                request,
+                eventContext(55L, "owner")
+        );
     }
 
     @Test
@@ -473,8 +490,16 @@ class ExchangeServiceTest {
         assertEquals(ExchangeStatus.DECLINED, conflictingRequest.getStatus());
 
         verify(exchangeRepository).saveAll(List.of(conflictingRequest));
-        verify(exchangeOutboxService).recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_ACCEPTED, request);
-        verify(exchangeOutboxService).recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_DECLINED, conflictingRequest);
+        verify(exchangeOutboxService).recordExchangeEvent(
+                ExchangeEventType.EXCHANGE_REQUEST_ACCEPTED,
+                request,
+                eventContext(55L, "owner")
+        );
+        verify(exchangeOutboxService).recordExchangeEvent(
+                ExchangeEventType.EXCHANGE_REQUEST_DECLINED,
+                conflictingRequest,
+                eventContext(55L, "owner")
+        );
     }
 
     @Test
@@ -639,7 +664,11 @@ class ExchangeServiceTest {
         // assert
         assertEquals(ExchangeStatus.DECLINED, response.getStatus());
         verify(exchangeRepository).save(request);
-        verify(exchangeOutboxService).recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_DECLINED, request);
+        verify(exchangeOutboxService).recordExchangeEvent(
+                ExchangeEventType.EXCHANGE_REQUEST_DECLINED,
+                request,
+                eventContext(55L, "owner")
+        );
     }
 
     @Test
@@ -662,7 +691,11 @@ class ExchangeServiceTest {
         // assert
         assertEquals(ExchangeStatus.CANCELLED, response.getStatus());
         verify(exchangeRepository).save(request);
-        verify(exchangeOutboxService).recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_CANCELLED, request);
+        verify(exchangeOutboxService).recordExchangeEvent(
+                ExchangeEventType.EXCHANGE_REQUEST_CANCELLED,
+                request,
+                eventContext(42L, "requester")
+        );
     }
 
     @Test
@@ -692,7 +725,7 @@ class ExchangeServiceTest {
         verify(exchangeOutboxService).recordExchangeEvent(
                 ExchangeEventType.EXCHANGE_REQUEST_COMPLETION_CONFIRMED,
                 request,
-                55L
+                eventContext(55L, "owner", 55L)
         );
     }
 
@@ -749,7 +782,11 @@ class ExchangeServiceTest {
         verify(exchangeRepository).save(request);
         assertEquals(ExchangeStatus.COMPLETED, request.getStatus());
         assertNotNull(request.getRequesterCompletionConfirmedAt());
-        verify(exchangeOutboxService).recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_COMPLETED, request, 42L);
+        verify(exchangeOutboxService).recordExchangeEvent(
+                ExchangeEventType.EXCHANGE_REQUEST_COMPLETED,
+                request,
+                eventContext(42L, "requester", 42L)
+        );
     }
 
     @Test
@@ -871,7 +908,11 @@ class ExchangeServiceTest {
         verify(bookServiceClient).makeAvailable(200L);
         verify(exchangeRepository).save(request);
         assertEquals(ExchangeStatus.CANCELLED, request.getStatus());
-        verify(exchangeOutboxService).recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_CANCELLED, request);
+        verify(exchangeOutboxService).recordExchangeEvent(
+                ExchangeEventType.EXCHANGE_REQUEST_CANCELLED,
+                request,
+                eventContext(42L, "alice")
+        );
     }
 
     @Test
@@ -940,5 +981,19 @@ class ExchangeServiceTest {
 
     private HttpClientErrorException bookServiceException(HttpStatus status) {
         return HttpClientErrorException.create(status, status.getReasonPhrase(), HttpHeaders.EMPTY, new byte[0], null);
+    }
+
+    private ExchangeEventContext eventContext(Long initiatorUserId, String initiatorUsername) {
+        return eventContext(initiatorUserId, initiatorUsername, null);
+    }
+
+    private ExchangeEventContext eventContext(Long initiatorUserId,
+                                              String initiatorUsername,
+                                              Long completedByUserId) {
+        return ExchangeEventContext.builder()
+                .initiatorUserId(initiatorUserId)
+                .initiatorUsername(initiatorUsername)
+                .completedByUserId(completedByUserId)
+                .build();
     }
 }

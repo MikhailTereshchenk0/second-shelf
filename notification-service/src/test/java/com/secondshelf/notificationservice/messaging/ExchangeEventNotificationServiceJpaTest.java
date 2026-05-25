@@ -59,6 +59,10 @@ class ExchangeEventNotificationServiceJpaTest {
         assertEquals(55L, notification.getUserId());
         assertEquals(NotificationType.EXCHANGE_REQUEST_CREATED, notification.getType());
         assertEquals("New exchange request", notification.getTitle());
+        assertEquals(
+                "alice wants to exchange \"Dune\" by Frank Herbert for your \"The Left Hand of Darkness\" by Ursula K. Le Guin. Message from requester: Can meet this weekend.",
+                notification.getMessage()
+        );
         assertEquals(NotificationStatus.UNREAD, notification.getStatus());
         assertEquals("EXCHANGE_REQUEST", notification.getRelatedEntityType());
         assertEquals("101", notification.getRelatedEntityId());
@@ -74,6 +78,8 @@ class ExchangeEventNotificationServiceJpaTest {
         // arrange
         UUID eventId = UUID.randomUUID();
         ExchangeEventPayload payload = sampleEvent(eventId, "exchange.request.accepted");
+        payload.setInitiatorUserId(55L);
+        payload.setInitiatorUsername("owner");
 
         // act
         exchangeEventNotificationService.process(payload);
@@ -86,6 +92,11 @@ class ExchangeEventNotificationServiceJpaTest {
         Notification notification = notificationRepository.findAll().get(0);
         assertEquals(42L, notification.getUserId());
         assertEquals(NotificationType.EXCHANGE_REQUEST_ACCEPTED, notification.getType());
+        assertEquals("Your exchange request was accepted", notification.getTitle());
+        assertEquals(
+                "owner accepted your request to exchange \"Dune\" by Frank Herbert for \"The Left Hand of Darkness\" by Ursula K. Le Guin.",
+                notification.getMessage()
+        );
     }
 
     @Test
@@ -104,7 +115,11 @@ class ExchangeEventNotificationServiceJpaTest {
         Notification notification = notifications.get(0);
         assertEquals(55L, notification.getUserId());
         assertEquals(NotificationType.EXCHANGE_REQUEST_COMPLETION_CONFIRMED, notification.getType());
-        assertEquals("Exchange waiting for your confirmation", notification.getTitle());
+        assertEquals("Your confirmation is needed", notification.getTitle());
+        assertEquals(
+                "alice confirmed the exchange of \"Dune\" by Frank Herbert and \"The Left Hand of Darkness\" by Ursula K. Le Guin. Confirm it from your side to complete the exchange.",
+                notification.getMessage()
+        );
     }
 
     @Test
@@ -131,6 +146,10 @@ class ExchangeEventNotificationServiceJpaTest {
         assertTrue(notifications.stream().allMatch(notification -> notification.getReadAt() == null));
         assertTrue(notifications.stream().allMatch(notification -> "EXCHANGE_REQUEST".equals(notification.getRelatedEntityType())));
         assertTrue(notifications.stream().allMatch(notification -> "101".equals(notification.getRelatedEntityId())));
+        assertTrue(notifications.stream().allMatch(notification ->
+                "Your exchange of \"Dune\" by Frank Herbert and \"The Left Hand of Darkness\" by Ursula K. Le Guin is complete."
+                        .equals(notification.getMessage())
+        ));
     }
 
     @TestConfiguration(proxyBeanMethods = false)
@@ -155,15 +174,23 @@ class ExchangeEventNotificationServiceJpaTest {
 
     private ExchangeEventPayload sampleEvent(UUID eventId, String eventType) {
         return ExchangeEventPayload.builder()
+                .schemaVersion(2)
                 .eventId(eventId)
                 .correlationId("corr-notification-jpa-123")
                 .eventType(eventType)
                 .occurredAt(LocalDateTime.of(2026, 5, 20, 10, 15))
                 .exchangeRequestId(101L)
+                .initiatorUserId(42L)
+                .initiatorUsername("alice")
                 .requesterId(42L)
                 .ownerId(55L)
                 .requestedBookId(1001L)
+                .requestedBookTitle("The Left Hand of Darkness")
+                .requestedBookAuthor("Ursula K. Le Guin")
                 .offeredBookId(2002L)
+                .offeredBookTitle("Dune")
+                .offeredBookAuthor("Frank Herbert")
+                .requestMessage("Can meet this weekend.")
                 .status("COMPLETED")
                 .build();
     }

@@ -1,0 +1,20 @@
+databaseChangeLog:
+  - changeSet:
+      id: 005-add-book-snapshot-columns
+      author: OpenAI
+      changes:
+        - addColumn:
+            tableName: exchange_requests
+            columns:
+              - column:
+                  name: requested_book_title
+                  type: VARCHAR(200)
+              - column:
+                  name: requested_book_author
+                  type: VARCHAR(200)
+              - column:
+                  name: offered_book_title
+                  type: VARCHAR(200)
+              - column:
+                  name: offered_book_author
+                  type: VARCHAR(200)

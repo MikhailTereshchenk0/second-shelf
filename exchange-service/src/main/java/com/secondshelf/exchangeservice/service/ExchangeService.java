@@ -10,6 +10,7 @@ import com.secondshelf.exchangeservice.exception.ExchangeBadRequestException;
 import com.secondshelf.exchangeservice.exception.ExchangeConflictException;
 import com.secondshelf.exchangeservice.exception.ExchangeForbiddenException;
 import com.secondshelf.exchangeservice.exception.ExchangeNotFoundException;
+import com.secondshelf.exchangeservice.outbox.ExchangeEventContext;
 import com.secondshelf.exchangeservice.outbox.ExchangeEventType;
 import com.secondshelf.exchangeservice.outbox.ExchangeOutboxService;
 import com.secondshelf.exchangeservice.repository.ExchangeRepository;
@@ -77,7 +78,11 @@ public class ExchangeService {
         ExchangeRequest saved = exchangeRepository.save(
                 ExchangeRequest.builder()
                         .requestedBookId(req.getRequestedBookId())
+                        .requestedBookTitle(requestedBook.getTitle())
+                        .requestedBookAuthor(requestedBook.getAuthor())
                         .offeredBookId(req.getOfferedBookId())
+                        .offeredBookTitle(offeredBook.getTitle())
+                        .offeredBookAuthor(offeredBook.getAuthor())
                         .ownerId(requestedBook.getOwnerId())
                         .requesterId(requesterId)
                         .status(ExchangeStatus.PENDING)
@@ -85,7 +90,11 @@ public class ExchangeService {
                         .build()
         );
 
-        exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_CREATED, saved);
+        exchangeOutboxService.recordExchangeEvent(
+                ExchangeEventType.EXCHANGE_REQUEST_CREATED,
+                saved,
+                eventContext(principal)
+        );
 
         return toResponse(saved);
     }
@@ -140,9 +149,10 @@ public class ExchangeService {
         List<ExchangeRequest> declinedRequests = declineConflictingPendingRequests(req.getId(), activeRequests);
         ExchangeRequest saved = exchangeRepository.save(req);
 
-        exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_ACCEPTED, saved);
+        ExchangeEventContext eventContext = eventContext(principal);
+        exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_ACCEPTED, saved, eventContext);
         declinedRequests.forEach(declinedRequest ->
-                exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_DECLINED, declinedRequest)
+                exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_DECLINED, declinedRequest, eventContext)
         );
 
         return toResponse(saved);
@@ -164,7 +174,11 @@ public class ExchangeService {
 
         req.setStatus(ExchangeStatus.DECLINED);
         ExchangeRequest saved = exchangeRepository.save(req);
-        exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_DECLINED, saved);
+        exchangeOutboxService.recordExchangeEvent(
+                ExchangeEventType.EXCHANGE_REQUEST_DECLINED,
+                saved,
+                eventContext(principal)
+        );
 
         return toResponse(saved);
     }
@@ -190,7 +204,11 @@ public class ExchangeService {
 
         req.setStatus(ExchangeStatus.CANCELLED);
         ExchangeRequest saved = exchangeRepository.save(req);
-        exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_CANCELLED, saved);
+        exchangeOutboxService.recordExchangeEvent(
+                ExchangeEventType.EXCHANGE_REQUEST_CANCELLED,
+                saved,
+                eventContext(principal)
+        );
 
         return toResponse(saved);
     }
@@ -223,7 +241,7 @@ public class ExchangeService {
             exchangeOutboxService.recordExchangeEvent(
                     ExchangeEventType.EXCHANGE_REQUEST_COMPLETION_CONFIRMED,
                     saved,
-                    me
+                    eventContext(principal, me)
             );
             return toResponse(saved);
         }
@@ -232,7 +250,11 @@ public class ExchangeService {
         req.confirmCompletion(me, confirmedAt);
         req.setStatus(ExchangeStatus.COMPLETED);
         ExchangeRequest saved = exchangeRepository.save(req);
-        exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_COMPLETED, saved, me);
+        exchangeOutboxService.recordExchangeEvent(
+                ExchangeEventType.EXCHANGE_REQUEST_COMPLETED,
+                saved,
+                eventContext(principal, me)
+        );
 
         return toResponse(saved);
     }
@@ -362,6 +384,18 @@ public class ExchangeService {
             );
         }
         return principal.userId();
+    }
+
+    private ExchangeEventContext eventContext(UserPrincipal principal) {
+        return eventContext(principal, null);
+    }
+
+    private ExchangeEventContext eventContext(UserPrincipal principal, Long completedByUserId) {
+        return ExchangeEventContext.builder()
+                .initiatorUserId(principal != null ? principal.userId() : null)
+                .initiatorUsername(principal != null ? principal.username() : null)
+                .completedByUserId(completedByUserId)
+                .build();
     }
 
     private ExchangeRequest findExchangeRequestForUpdate(Long exchangeId) {

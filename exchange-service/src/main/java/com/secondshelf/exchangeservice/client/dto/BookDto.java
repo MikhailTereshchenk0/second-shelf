@@ -6,6 +6,8 @@ import lombok.Data;
 public class BookDto {
     private Long id;
     private Long ownerId;
+    private String title;
+    private String author;
     private String visibility; // PUBLIC/PRIVATE
     private String status;     // AVAILABLE/RESERVED/EXCHANGED
 }

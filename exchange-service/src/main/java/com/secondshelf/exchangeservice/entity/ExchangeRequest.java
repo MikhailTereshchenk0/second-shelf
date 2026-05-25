@@ -28,8 +28,20 @@ public class ExchangeRequest {
     @Column(name = "requested_book_id", nullable = false)
     private Long requestedBookId;
 
+    @Column(name = "requested_book_title", length = 200)
+    private String requestedBookTitle;
+
+    @Column(name = "requested_book_author", length = 200)
+    private String requestedBookAuthor;
+
     @Column(name = "offered_book_id")
     private Long offeredBookId;
+
+    @Column(name = "offered_book_title", length = 200)
+    private String offeredBookTitle;
+
+    @Column(name = "offered_book_author", length = 200)
+    private String offeredBookAuthor;
 
     @Column(name = "owner_id", nullable = false)
     private Long ownerId; // владелец запрашиваемой книги
