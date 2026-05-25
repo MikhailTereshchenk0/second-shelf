@@ -27,9 +27,9 @@ spring:
 
 notification:
   rabbitmq:
-    exchange: ${NOTIFICATION_RABBIT_EXCHANGE:exchange.events}
-    queue: ${NOTIFICATION_RABBIT_QUEUE:notification.exchange-events}
-    routing-key-pattern: ${NOTIFICATION_RABBIT_ROUTING_KEY_PATTERN:exchange.request.*}
+    exchange: ${EXCHANGE_EVENTS_EXCHANGE:${NOTIFICATION_RABBIT_EXCHANGE:exchange.events}}
+    queue: ${EXCHANGE_EVENTS_QUEUE:${NOTIFICATION_RABBIT_QUEUE:notification.exchange-events}}
+    routing-key-pattern: ${EXCHANGE_EVENTS_ROUTING_KEY_PATTERN:${NOTIFICATION_RABBIT_ROUTING_KEY_PATTERN:exchange.request.*}}
 
 jwt:
   secret: ${JWT_SECRET:change_this_secret_to_something_long_and_random_1234567890_change_me}

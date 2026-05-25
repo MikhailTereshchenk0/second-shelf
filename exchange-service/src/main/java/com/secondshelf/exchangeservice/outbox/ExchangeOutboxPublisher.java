@@ -17,6 +17,7 @@ import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionOperations;
@@ -29,6 +30,7 @@ import java.util.concurrent.TimeoutException;
 
 @Slf4j
 @Component
+@DependsOn("rabbitAdmin")
 @ConditionalOnProperty(name = "exchange.outbox.publisher.enabled", havingValue = "true", matchIfMissing = true)
 public class ExchangeOutboxPublisher {
 

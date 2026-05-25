@@ -38,7 +38,9 @@ book-service:
 exchange:
   outbox:
     rabbitmq:
-      exchange: ${EXCHANGE_OUTBOX_RABBIT_EXCHANGE:exchange.events}
+      exchange: ${EXCHANGE_EVENTS_EXCHANGE:${EXCHANGE_OUTBOX_RABBIT_EXCHANGE:exchange.events}}
+      queue: ${EXCHANGE_EVENTS_QUEUE:${EXCHANGE_OUTBOX_RABBIT_QUEUE:notification.exchange-events}}
+      routing-key-pattern: ${EXCHANGE_EVENTS_ROUTING_KEY_PATTERN:${EXCHANGE_OUTBOX_RABBIT_ROUTING_KEY_PATTERN:exchange.request.*}}
     publisher:
       enabled: ${EXCHANGE_OUTBOX_PUBLISHER_ENABLED:true}
       fixed-delay-ms: ${EXCHANGE_OUTBOX_PUBLISHER_FIXED_DELAY_MS:5000}

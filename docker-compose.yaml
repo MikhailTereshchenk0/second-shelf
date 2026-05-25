@@ -22,7 +22,7 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-guest}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
     ports:
-      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_HOST_PORT:-5672}:5672"
       - "15672:15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
@@ -112,10 +112,12 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       BOOK_SERVICE_BASE_URL: http://book-service:8082
       RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_PORT: 5672
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
-      EXCHANGE_OUTBOX_RABBIT_EXCHANGE: exchange.events
+      EXCHANGE_EVENTS_EXCHANGE: ${EXCHANGE_EVENTS_EXCHANGE:-exchange.events}
+      EXCHANGE_EVENTS_QUEUE: ${EXCHANGE_EVENTS_QUEUE:-notification.exchange-events}
+      EXCHANGE_EVENTS_ROUTING_KEY_PATTERN: ${EXCHANGE_EVENTS_ROUTING_KEY_PATTERN:-exchange.request.*}
     depends_on:
       postgres:
         condition: service_healthy
@@ -139,12 +141,12 @@ services:
       NOTIFICATION_DB_NAME: ${NOTIFICATION_DB_NAME:-notification_db}
       JWT_SECRET: ${JWT_SECRET}
       RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_PORT: 5672
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
-      NOTIFICATION_RABBIT_EXCHANGE: exchange.events
-      NOTIFICATION_RABBIT_QUEUE: notification.exchange-events
-      NOTIFICATION_RABBIT_ROUTING_KEY_PATTERN: exchange.request.*
+      EXCHANGE_EVENTS_EXCHANGE: ${EXCHANGE_EVENTS_EXCHANGE:-exchange.events}
+      EXCHANGE_EVENTS_QUEUE: ${EXCHANGE_EVENTS_QUEUE:-notification.exchange-events}
+      EXCHANGE_EVENTS_ROUTING_KEY_PATTERN: ${EXCHANGE_EVENTS_ROUTING_KEY_PATTERN:-exchange.request.*}
     depends_on:
       postgres:
         condition: service_healthy

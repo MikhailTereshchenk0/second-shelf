@@ -10,4 +10,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class ExchangeRabbitProperties {
 
     private String exchange = "exchange.events";
+    private String queue = "notification.exchange-events";
+    private String routingKeyPattern = "exchange.request.*";
 }
