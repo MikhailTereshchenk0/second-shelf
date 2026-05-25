@@ -1,7 +1,7 @@
 package com.secondshelf.userservice.controller;
 
+import com.secondshelf.userservice.dto.PrivateUserProfileResponse;
 import com.secondshelf.userservice.dto.UpdateRolesRequest;
-import com.secondshelf.userservice.dto.UserProfileResponse;
 import com.secondshelf.userservice.service.AdminUserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -23,48 +23,48 @@ public class AdminUserController {
 
     @Operation(
             summary = "Update user roles",
-            description = "Updates the role set for a specific user. Intended for administrators only"
+            description = "Updates the role set for a specific user and returns the user's private profile. Intended for administrators only"
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Roles updated successfully"),
+            @ApiResponse(responseCode = "200", description = "Private profile with updated roles returned successfully"),
             @ApiResponse(responseCode = "400", description = "Invalid request payload"),
             @ApiResponse(responseCode = "401", description = "Authentication required"),
             @ApiResponse(responseCode = "403", description = "Administrator role required"),
             @ApiResponse(responseCode = "404", description = "User not found")
     })
     @PutMapping("/{id}/roles")
-    public UserProfileResponse updateRoles(@PathVariable Long id,
-                                           @Valid @RequestBody UpdateRolesRequest request) {
+    public PrivateUserProfileResponse updateRoles(@PathVariable Long id,
+                                                  @Valid @RequestBody UpdateRolesRequest request) {
         return adminUserService.updateRoles(id, request.getRoles());
     }
 
     @Operation(
             summary = "Block user",
-            description = "Blocks a user account. Intended for administrators only"
+            description = "Blocks a user account and returns the user's private profile. Intended for administrators only"
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "User blocked successfully"),
+            @ApiResponse(responseCode = "200", description = "Private profile with blocked status returned successfully"),
             @ApiResponse(responseCode = "401", description = "Authentication required"),
             @ApiResponse(responseCode = "403", description = "Administrator role required"),
             @ApiResponse(responseCode = "404", description = "User not found")
     })
     @PutMapping("/{id}/block")
-    public UserProfileResponse block(@PathVariable Long id) {
+    public PrivateUserProfileResponse block(@PathVariable Long id) {
         return adminUserService.block(id);
     }
 
     @Operation(
             summary = "Unblock user",
-            description = "Removes blocking from a user account. Intended for administrators only"
+            description = "Removes blocking from a user account and returns the user's private profile. Intended for administrators only"
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "User unblocked successfully"),
+            @ApiResponse(responseCode = "200", description = "Private profile with unblocked status returned successfully"),
             @ApiResponse(responseCode = "401", description = "Authentication required"),
             @ApiResponse(responseCode = "403", description = "Administrator role required"),
             @ApiResponse(responseCode = "404", description = "User not found")
     })
     @PutMapping("/{id}/unblock")
-    public UserProfileResponse unblock(@PathVariable Long id) {
+    public PrivateUserProfileResponse unblock(@PathVariable Long id) {
         return adminUserService.unblock(id);
     }
 }
