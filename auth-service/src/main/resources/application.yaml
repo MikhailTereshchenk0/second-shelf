@@ -25,6 +25,10 @@ internal:
 user-service:
   base-url: ${USER_SERVICE_BASE_URL:http://localhost:8081}
 
+auth:
+  refresh-token:
+    pepper: ${AUTH_REFRESH_TOKEN_PEPPER:}
+
 jwt:
   secret: ${JWT_SECRET:change_this_secret_to_something_long_and_random_1234567890_change_me}
   expiration-ms: ${JWT_ACCESS_EXPIRATION_MS:900000}
