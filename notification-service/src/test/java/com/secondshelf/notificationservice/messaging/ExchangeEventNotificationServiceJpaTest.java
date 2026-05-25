@@ -123,6 +123,33 @@ class ExchangeEventNotificationServiceJpaTest {
     }
 
     @Test
+    void processShouldPersistCompletionConfirmationForRequesterWhenOwnerConfirmsFirst() {
+        // arrange
+        ExchangeEventPayload payload = sampleEvent(UUID.randomUUID(), "exchange.request.completion_confirmed");
+        payload.setInitiatorUserId(55L);
+        payload.setInitiatorUsername("owner");
+        payload.setCompletedByUserId(55L);
+        payload.setStatus("COMPLETION_PENDING");
+
+        // act
+        exchangeEventNotificationService.process(payload);
+
+        // assert
+        List<Notification> notifications = notificationRepository.findAll();
+        assertEquals(1, notifications.size());
+        Notification notification = notifications.get(0);
+        assertEquals(42L, notification.getUserId());
+        assertEquals(NotificationType.EXCHANGE_REQUEST_COMPLETION_CONFIRMED, notification.getType());
+        assertEquals("Your confirmation is needed", notification.getTitle());
+        assertEquals(NotificationStatus.UNREAD, notification.getStatus());
+        assertEquals(
+                "owner confirmed the exchange of \"Dune\" by Frank Herbert and \"The Left Hand of Darkness\" by Ursula K. Le Guin. Confirm it from your side to complete the exchange.",
+                notification.getMessage()
+        );
+        assertEquals(1, processedEventRepository.count());
+    }
+
+    @Test
     void processShouldPersistTwoUnreadNotificationsForCompletedEvent() {
         // arrange
         ExchangeEventPayload payload = sampleEvent(UUID.randomUUID(), "exchange.request.completed");

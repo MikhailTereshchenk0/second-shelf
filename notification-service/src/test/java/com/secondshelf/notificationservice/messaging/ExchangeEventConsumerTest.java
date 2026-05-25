@@ -40,6 +40,13 @@ class ExchangeEventConsumerTest {
         exchangeEventConsumer.consumeExchangeEvent(payload, "corr-consumer-header-123", false);
 
         verify(exchangeEventNotificationService).process(payload);
+        assertEquals(
+                1.0,
+                meterRegistry.get("notification.exchange.events.received")
+                        .tag("event_type", "exchange.request.created")
+                        .counter()
+                        .count()
+        );
     }
 
     @Test

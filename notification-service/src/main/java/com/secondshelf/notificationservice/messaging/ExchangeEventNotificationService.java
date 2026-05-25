@@ -49,6 +49,7 @@ public class ExchangeEventNotificationService {
 
             List<Notification> notifications = buildNotifications(eventPayload, eventType);
             notificationRepository.saveAll(notifications);
+            notificationAsyncMetrics.incrementNotificationsCreated(eventPayload.getEventType(), notifications.size());
             notificationAsyncMetrics.incrementProcessed(eventPayload.getEventType());
 
             log.info(

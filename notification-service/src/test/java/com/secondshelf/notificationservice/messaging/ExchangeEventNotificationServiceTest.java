@@ -202,6 +202,20 @@ class ExchangeEventNotificationServiceTest {
                 ),
                 notifications.stream().map(Notification::getMessage).toList()
         );
+        assertEquals(
+                2.0,
+                meterRegistry.get("notification.exchange.notifications.created")
+                        .tag("event_type", "exchange.request.completed")
+                        .counter()
+                        .count()
+        );
+        assertEquals(
+                1.0,
+                meterRegistry.get("notification.exchange.events.processed")
+                        .tag("event_type", "exchange.request.completed")
+                        .counter()
+                        .count()
+        );
     }
 
     @Test

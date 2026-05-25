@@ -29,12 +29,19 @@ public class ExchangeEventConsumer {
                 : eventPayload != null ? eventPayload.getCorrelationId() : null;
 
         try (CorrelationId.Scope ignored = CorrelationId.openScope(correlationId)) {
+            notificationAsyncMetrics.incrementReceived(resolveEventType(eventPayload));
             log.info(
-                    "Received exchange event eventId={}, eventType={}",
+                    "Received exchange event eventId={}, eventType={}, redelivered={}",
+                    eventPayload != null ? eventPayload.getEventId() : null,
+                    eventPayload != null ? eventPayload.getEventType() : null,
+                    Boolean.TRUE.equals(redelivered)
+            );
+            exchangeEventNotificationService.process(eventPayload);
+            log.info(
+                    "Processed exchange event successfully eventId={}, eventType={}",
                     eventPayload != null ? eventPayload.getEventId() : null,
                     eventPayload != null ? eventPayload.getEventType() : null
             );
-            exchangeEventNotificationService.process(eventPayload);
         } catch (NotificationBadRequestException ex) {
             notificationAsyncMetrics.incrementDeadLettered(resolveEventType(eventPayload), "invalid");
             log.error(

@@ -10,8 +10,21 @@ public class NotificationAsyncMetrics {
 
     private final MeterRegistry meterRegistry;
 
+    public void incrementReceived(String eventType) {
+        meterRegistry.counter("notification.exchange.events.received", "event_type", safe(eventType)).increment();
+    }
+
     public void incrementProcessed(String eventType) {
         meterRegistry.counter("notification.exchange.events.processed", "event_type", safe(eventType)).increment();
+    }
+
+    public void incrementNotificationsCreated(String eventType, int notificationsCreated) {
+        if (notificationsCreated <= 0) {
+            return;
+        }
+
+        meterRegistry.counter("notification.exchange.notifications.created", "event_type", safe(eventType))
+                .increment(notificationsCreated);
     }
 
     public void incrementIgnored(String eventType, String reason) {

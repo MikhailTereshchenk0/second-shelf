@@ -57,16 +57,26 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics
   endpoint:
     health:
       probes:
         enabled: true
       show-details: never
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db
+        asyncFlow:
+          include: readinessState,db,rabbit,exchangeOutbox
+          show-details: always
   health:
     livenessstate:
       enabled: true
     readinessstate:
+      enabled: true
+    rabbit:
       enabled: true
 
 springdoc:
