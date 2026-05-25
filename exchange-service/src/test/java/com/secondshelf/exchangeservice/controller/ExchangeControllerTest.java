@@ -317,6 +317,35 @@ class ExchangeControllerTest {
     }
 
     @Test
+    void completeShouldSerializeCompletedResponseWithBothConfirmationTimestamps() throws Exception {
+        // arrange
+        ExchangeResponse response = ExchangeResponse.builder()
+                .id(12L)
+                .requestedBookId(102L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.COMPLETED)
+                .ownerCompletionConfirmedAt(LocalDateTime.of(2026, 5, 25, 14, 5))
+                .requesterCompletionConfirmedAt(LocalDateTime.of(2026, 5, 25, 14, 11))
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+
+        when(exchangeService.complete(12L, new UserPrincipal(42L, "alice"))).thenReturn(response);
+
+        // act + assert
+        mockMvc.perform(post("/api/v1/exchanges/12/complete")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(42L, "alice", List.of("ROLE_USER")))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(12))
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.ownerCompletionConfirmedAt").value("2026-05-25T14:05:00"))
+                .andExpect(jsonPath("$.requesterCompletionConfirmedAt").value("2026-05-25T14:11:00"));
+
+        verify(exchangeService).complete(12L, new UserPrincipal(42L, "alice"));
+    }
+
+    @Test
     void completeShouldReturnConflictContractForInvalidStatusTransition() throws Exception {
         // arrange
         when(exchangeService.complete(12L, new UserPrincipal(55L, "owner")))

@@ -159,6 +159,39 @@ class ExchangeOutboxPublisherTest {
     }
 
     @Test
+    void publishPendingEventsShouldClearPreviousErrorWhenRetriedEventPublishesSuccessfully() {
+        OutboxEvent event = buildEvent("exchange.request.completed", "corr-retry-success-123");
+        event.setAttemptsCount(2);
+        event.setLastError("AmqpException: RabbitMQ is unavailable");
+
+        when(outboxEventRepository.findTop100ByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING))
+                .thenReturn(List.of(event));
+        when(outboxEventRepository.findById(1L)).thenReturn(Optional.of(event));
+
+        doAnswer(invocation -> {
+            CorrelationData correlationData = invocation.getArgument(3);
+            correlationData.getFuture().complete(new CorrelationData.Confirm(true, null));
+            return null;
+        }).when(rabbitTemplate).send(eq("exchange.events"), eq("exchange.request.completed"), any(Message.class), any(CorrelationData.class));
+
+        exchangeOutboxPublisher.publishPendingEvents();
+
+        verify(outboxEventRepository).save(event);
+        assertEquals(2, event.getAttemptsCount());
+        assertEquals(OutboxEventStatus.PUBLISHED, event.getStatus());
+        assertNotNull(event.getPublishedAt());
+        assertNull(event.getFailedAt());
+        assertNull(event.getLastError());
+        assertEquals(
+                1.0,
+                meterRegistry.get("exchange.outbox.events.published")
+                        .tag("event_type", "exchange.request.completed")
+                        .counter()
+                        .count()
+        );
+    }
+
+    @Test
     void publishPendingEventsShouldIncrementAttemptsWhenMessageIsReturnedAsUnroutable() {
         OutboxEvent event = buildEvent("exchange.request.declined", "corr-return-123");
 
