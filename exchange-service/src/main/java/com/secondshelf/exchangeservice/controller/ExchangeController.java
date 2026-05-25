@@ -130,7 +130,7 @@ public class ExchangeController {
 
     @Operation(
             summary = "Complete exchange request",
-            description = "Marks an accepted exchange request as completed"
+            description = "Confirms exchange completion for the authenticated participant. The exchange becomes completed only after both participants confirm it."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Exchange request completed"),

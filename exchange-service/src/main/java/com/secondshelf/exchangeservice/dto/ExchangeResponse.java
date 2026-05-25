@@ -16,6 +16,8 @@ public class ExchangeResponse {
     private Long requesterId;
     private ExchangeStatus status;
     private String message;
+    private LocalDateTime ownerCompletionConfirmedAt;
+    private LocalDateTime requesterCompletionConfirmedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

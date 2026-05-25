@@ -66,6 +66,10 @@ class ExchangeEventNotificationServiceTest {
         assertEquals(55L, notification.getUserId());
         assertEquals(NotificationType.EXCHANGE_REQUEST_CREATED, notification.getType());
         assertEquals("New exchange request", notification.getTitle());
+        assertEquals(
+                "alice wants to exchange \"Dune\" by Frank Herbert for your \"The Left Hand of Darkness\" by Ursula K. Le Guin. Message from requester: Can meet this weekend.",
+                notification.getMessage()
+        );
         assertEquals("EXCHANGE_REQUEST", notification.getRelatedEntityType());
         assertEquals("101", notification.getRelatedEntityId());
         assertEquals(payload.getOccurredAt(), notification.getCreatedAt());
@@ -82,6 +86,8 @@ class ExchangeEventNotificationServiceTest {
     void processShouldCreateRequesterNotificationForAcceptedEvent() {
         // arrange
         ExchangeEventPayload payload = sampleEvent("exchange.request.accepted");
+        payload.setInitiatorUserId(55L);
+        payload.setInitiatorUsername("owner");
         when(processedEventRepository.existsById(payload.getEventId())).thenReturn(false);
         when(processedEventRepository.saveAndFlush(any(ProcessedEvent.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -93,13 +99,19 @@ class ExchangeEventNotificationServiceTest {
         Notification notification = captureSavedNotifications().get(0);
         assertEquals(42L, notification.getUserId());
         assertEquals(NotificationType.EXCHANGE_REQUEST_ACCEPTED, notification.getType());
-        assertEquals("Exchange request accepted", notification.getTitle());
+        assertEquals("Your exchange request was accepted", notification.getTitle());
+        assertEquals(
+                "owner accepted your request to exchange \"Dune\" by Frank Herbert for \"The Left Hand of Darkness\" by Ursula K. Le Guin.",
+                notification.getMessage()
+        );
     }
 
     @Test
     void processShouldCreateRequesterNotificationForDeclinedEvent() {
         // arrange
         ExchangeEventPayload payload = sampleEvent("exchange.request.declined");
+        payload.setInitiatorUserId(55L);
+        payload.setInitiatorUsername("owner");
         when(processedEventRepository.existsById(payload.getEventId())).thenReturn(false);
         when(processedEventRepository.saveAndFlush(any(ProcessedEvent.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -111,7 +123,11 @@ class ExchangeEventNotificationServiceTest {
         Notification notification = captureSavedNotifications().get(0);
         assertEquals(42L, notification.getUserId());
         assertEquals(NotificationType.EXCHANGE_REQUEST_DECLINED, notification.getType());
-        assertEquals("Exchange request declined", notification.getTitle());
+        assertEquals("Your exchange request was declined", notification.getTitle());
+        assertEquals(
+                "owner declined your request to exchange \"Dune\" by Frank Herbert for \"The Left Hand of Darkness\" by Ursula K. Le Guin.",
+                notification.getMessage()
+        );
     }
 
     @Test
@@ -130,6 +146,34 @@ class ExchangeEventNotificationServiceTest {
         assertEquals(55L, notification.getUserId());
         assertEquals(NotificationType.EXCHANGE_REQUEST_CANCELLED, notification.getType());
         assertEquals("Exchange request cancelled", notification.getTitle());
+        assertEquals(
+                "alice cancelled the request to exchange \"Dune\" by Frank Herbert for your \"The Left Hand of Darkness\" by Ursula K. Le Guin.",
+                notification.getMessage()
+        );
+    }
+
+    @Test
+    void processShouldCreateCounterpartyNotificationForCompletionConfirmedEvent() {
+        // arrange
+        ExchangeEventPayload payload = sampleEvent("exchange.request.completion_confirmed");
+        payload.setCompletedByUserId(42L);
+        payload.setStatus("COMPLETION_PENDING");
+        when(processedEventRepository.existsById(payload.getEventId())).thenReturn(false);
+        when(processedEventRepository.saveAndFlush(any(ProcessedEvent.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        // act
+        exchangeEventNotificationService.process(payload);
+
+        // assert
+        Notification notification = captureSavedNotifications().get(0);
+        assertEquals(55L, notification.getUserId());
+        assertEquals(NotificationType.EXCHANGE_REQUEST_COMPLETION_CONFIRMED, notification.getType());
+        assertEquals("Your confirmation is needed", notification.getTitle());
+        assertEquals(
+                "alice confirmed the exchange of \"Dune\" by Frank Herbert and \"The Left Hand of Darkness\" by Ursula K. Le Guin. Confirm it from your side to complete the exchange.",
+                notification.getMessage()
+        );
     }
 
     @Test
@@ -151,6 +195,43 @@ class ExchangeEventNotificationServiceTest {
                 NotificationType.EXCHANGE_REQUEST_COMPLETED,
                 NotificationType.EXCHANGE_REQUEST_COMPLETED
         ), notifications.stream().map(Notification::getType).toList());
+        assertEquals(
+                List.of(
+                        "Your exchange of \"Dune\" by Frank Herbert and \"The Left Hand of Darkness\" by Ursula K. Le Guin is complete.",
+                        "Your exchange of \"Dune\" by Frank Herbert and \"The Left Hand of Darkness\" by Ursula K. Le Guin is complete."
+                ),
+                notifications.stream().map(Notification::getMessage).toList()
+        );
+    }
+
+    @Test
+    void processShouldFallbackToGenericTextForLegacyPayloadWithoutSnapshots() {
+        // arrange
+        ExchangeEventPayload payload = ExchangeEventPayload.builder()
+                .eventId(UUID.randomUUID())
+                .correlationId("corr-notification-legacy-123")
+                .eventType("exchange.request.created")
+                .occurredAt(LocalDateTime.of(2026, 5, 18, 22, 30))
+                .exchangeRequestId(101L)
+                .requesterId(42L)
+                .ownerId(55L)
+                .requestedBookId(1001L)
+                .offeredBookId(2002L)
+                .status("PENDING")
+                .build();
+        when(processedEventRepository.existsById(payload.getEventId())).thenReturn(false);
+        when(processedEventRepository.saveAndFlush(any(ProcessedEvent.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        // act
+        exchangeEventNotificationService.process(payload);
+
+        // assert
+        Notification notification = captureSavedNotifications().get(0);
+        assertEquals(
+                "Another reader wants to exchange book #2002 for your book #1001.",
+                notification.getMessage()
+        );
     }
 
     @Test
@@ -233,15 +314,23 @@ class ExchangeEventNotificationServiceTest {
 
     private ExchangeEventPayload sampleEvent(String eventType) {
         return ExchangeEventPayload.builder()
+                .schemaVersion(2)
                 .eventId(UUID.randomUUID())
                 .correlationId("corr-notification-123")
                 .eventType(eventType)
                 .occurredAt(LocalDateTime.of(2026, 5, 18, 22, 30))
                 .exchangeRequestId(101L)
+                .initiatorUserId(42L)
+                .initiatorUsername("alice")
                 .requesterId(42L)
                 .ownerId(55L)
                 .requestedBookId(1001L)
+                .requestedBookTitle("The Left Hand of Darkness")
+                .requestedBookAuthor("Ursula K. Le Guin")
                 .offeredBookId(2002L)
+                .offeredBookTitle("Dune")
+                .offeredBookAuthor("Frank Herbert")
+                .requestMessage("Can meet this weekend.")
                 .status("PENDING")
                 .build();
     }

@@ -31,16 +31,28 @@ class ExchangeOutboxEventFactoryTest {
         ExchangeRequest exchangeRequest = ExchangeRequest.builder()
                 .id(42L)
                 .requestedBookId(100L)
+                .requestedBookTitle("The Left Hand of Darkness")
+                .requestedBookAuthor("Ursula K. Le Guin")
                 .offeredBookId(200L)
+                .offeredBookTitle("Dune")
+                .offeredBookAuthor("Frank Herbert")
                 .ownerId(55L)
                 .requesterId(77L)
                 .status(ExchangeStatus.ACCEPTED)
+                .message("Happy to swap this weekend.")
                 .build();
 
         // act
         OutboxEvent event;
         try (CorrelationId.Scope ignored = CorrelationId.openScope("corr-exchange-123")) {
-            event = factory.create(ExchangeEventType.EXCHANGE_REQUEST_ACCEPTED, exchangeRequest);
+            event = factory.create(
+                    ExchangeEventType.EXCHANGE_REQUEST_ACCEPTED,
+                    exchangeRequest,
+                    ExchangeEventContext.builder()
+                            .initiatorUserId(55L)
+                            .initiatorUsername("owner")
+                            .build()
+            );
         }
 
         // assert
@@ -52,18 +64,31 @@ class ExchangeOutboxEventFactoryTest {
         assertEquals(OutboxEventStatus.PENDING, event.getStatus());
         assertEquals(0, event.getAttemptsCount());
         assertNull(event.getPublishedAt());
+        assertNull(event.getFailedAt());
+        assertNull(event.getLastError());
         assertNotNull(event.getCreatedAt());
 
         JsonNode payloadJson = objectMapper.readTree(event.getPayload());
+        assertEquals(2, payloadJson.get("schemaVersion").asInt());
         assertEquals(event.getEventId().toString(), payloadJson.get("eventId").asText());
         assertEquals("corr-exchange-123", payloadJson.get("correlationId").asText());
         assertEquals("exchange.request.accepted", payloadJson.get("eventType").asText());
         assertEquals(42L, payloadJson.get("exchangeRequestId").asLong());
+        assertEquals(55L, payloadJson.get("initiatorUserId").asLong());
+        assertEquals("owner", payloadJson.get("initiatorUsername").asText());
         assertEquals(100L, payloadJson.get("requestedBookId").asLong());
+        assertEquals("The Left Hand of Darkness", payloadJson.get("requestedBookTitle").asText());
+        assertEquals("Ursula K. Le Guin", payloadJson.get("requestedBookAuthor").asText());
         assertEquals(200L, payloadJson.get("offeredBookId").asLong());
+        assertEquals("Dune", payloadJson.get("offeredBookTitle").asText());
+        assertEquals("Frank Herbert", payloadJson.get("offeredBookAuthor").asText());
         assertEquals(77L, payloadJson.get("requesterId").asLong());
         assertEquals(55L, payloadJson.get("ownerId").asLong());
+        assertEquals("Happy to swap this weekend.", payloadJson.get("requestMessage").asText());
         assertEquals("ACCEPTED", payloadJson.get("status").asText());
+        assertTrue(payloadJson.get("completedByUserId").isNull());
+        assertTrue(payloadJson.get("ownerCompletionConfirmedAt").isNull());
+        assertTrue(payloadJson.get("requesterCompletionConfirmedAt").isNull());
         assertTrue(payloadJson.hasNonNull("occurredAt"));
         assertEquals(
                 1.0,
@@ -83,12 +108,40 @@ class ExchangeOutboxEventFactoryTest {
                 .build();
 
         // act
-        event.incrementAttempts();
+        event.recordPublishFailure("Temporary RabbitMQ outage", 3);
         event.markPublished();
 
         // assert
         assertEquals(1, event.getAttemptsCount());
         assertEquals(OutboxEventStatus.PUBLISHED, event.getStatus());
         assertNotNull(event.getPublishedAt());
+        assertNull(event.getFailedAt());
+        assertNull(event.getLastError());
+    }
+
+    @Test
+    void outboxEventShouldRemainPendingUntilMarkedPublished() {
+        OutboxEvent event = OutboxEvent.builder()
+                .status(OutboxEventStatus.PENDING)
+                .attemptsCount(0)
+                .build();
+
+        assertEquals(OutboxEventStatus.PENDING, event.getStatus());
+        assertNull(event.getPublishedAt());
+    }
+
+    @Test
+    void outboxEventShouldBecomeTerminallyFailedWhenAttemptsAreExhausted() {
+        OutboxEvent event = OutboxEvent.builder()
+                .status(OutboxEventStatus.PENDING)
+                .attemptsCount(2)
+                .build();
+
+        event.recordPublishFailure("RabbitMQ unavailable", 3);
+
+        assertEquals(3, event.getAttemptsCount());
+        assertEquals(OutboxEventStatus.TERMINAL_FAILED, event.getStatus());
+        assertNotNull(event.getFailedAt());
+        assertEquals("RabbitMQ unavailable", event.getLastError());
     }
 }

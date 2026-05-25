@@ -2,5 +2,6 @@ package com.secondshelf.exchangeservice.entity;
 
 public enum OutboxEventStatus {
     PENDING,
-    PUBLISHED
+    PUBLISHED,
+    TERMINAL_FAILED
 }

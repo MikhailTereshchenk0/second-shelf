@@ -50,12 +50,19 @@ public class OutboxEvent {
     @Column(name = "published_at")
     private LocalDateTime publishedAt;
 
+    @Column(name = "failed_at")
+    private LocalDateTime failedAt;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private OutboxEventStatus status;
 
     @Column(name = "attempts_count", nullable = false)
     private int attemptsCount;
+
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
+    @Column(name = "last_error", columnDefinition = "TEXT")
+    private String lastError;
 
     @PrePersist
     void prePersist() {
@@ -74,8 +81,27 @@ public class OutboxEvent {
         attemptsCount++;
     }
 
+    public void recordPublishFailure(String errorMessage, int maxAttempts) {
+        incrementAttempts();
+        lastError = normalizeErrorMessage(errorMessage);
+
+        if (attemptsCount >= Math.max(1, maxAttempts)) {
+            status = OutboxEventStatus.TERMINAL_FAILED;
+            failedAt = LocalDateTime.now();
+        }
+    }
+
     public void markPublished() {
         status = OutboxEventStatus.PUBLISHED;
         publishedAt = LocalDateTime.now();
+        failedAt = null;
+        lastError = null;
+    }
+
+    private String normalizeErrorMessage(String errorMessage) {
+        if (errorMessage == null || errorMessage.isBlank()) {
+            return null;
+        }
+        return errorMessage.length() <= 2000 ? errorMessage : errorMessage.substring(0, 2000);
     }
 }

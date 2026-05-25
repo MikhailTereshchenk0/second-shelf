@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @DataJpaTest(properties = {
@@ -46,7 +47,11 @@ class ExchangeOutboxServiceJpaTest {
         ExchangeRequest exchangeRequest = ExchangeRequest.builder()
                 .id(101L)
                 .requestedBookId(1001L)
+                .requestedBookTitle("The Dispossessed")
+                .requestedBookAuthor("Ursula K. Le Guin")
                 .offeredBookId(2002L)
+                .offeredBookTitle("Dune")
+                .offeredBookAuthor("Frank Herbert")
                 .ownerId(55L)
                 .requesterId(42L)
                 .status(ExchangeStatus.ACCEPTED)
@@ -55,7 +60,14 @@ class ExchangeOutboxServiceJpaTest {
 
         // act
         try (CorrelationId.Scope ignored = CorrelationId.openScope("corr-outbox-jpa-123")) {
-            exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_ACCEPTED, exchangeRequest);
+            exchangeOutboxService.recordExchangeEvent(
+                    ExchangeEventType.EXCHANGE_REQUEST_ACCEPTED,
+                    exchangeRequest,
+                    ExchangeEventContext.builder()
+                            .initiatorUserId(55L)
+                            .initiatorUsername("owner")
+                            .build()
+            );
         }
         outboxEventRepository.flush();
 
@@ -66,6 +78,8 @@ class ExchangeOutboxServiceJpaTest {
         assertNotNull(savedEvent.getId());
         assertEquals(OutboxEventStatus.PENDING, savedEvent.getStatus());
         assertEquals(0, savedEvent.getAttemptsCount());
+        assertNull(savedEvent.getFailedAt());
+        assertNull(savedEvent.getLastError());
         assertEquals("EXCHANGE_REQUEST", savedEvent.getAggregateType());
         assertEquals("101", savedEvent.getAggregateId());
         assertEquals("exchange.request.accepted", savedEvent.getEventType());
@@ -74,10 +88,18 @@ class ExchangeOutboxServiceJpaTest {
         assertEquals("corr-outbox-jpa-123", payload.getCorrelationId());
         assertEquals("exchange.request.accepted", payload.getEventType());
         assertEquals(101L, payload.getExchangeRequestId());
+        assertEquals(2, payload.getSchemaVersion());
+        assertEquals(55L, payload.getInitiatorUserId());
+        assertEquals("owner", payload.getInitiatorUsername());
         assertEquals(42L, payload.getRequesterId());
         assertEquals(55L, payload.getOwnerId());
         assertEquals(1001L, payload.getRequestedBookId());
+        assertEquals("The Dispossessed", payload.getRequestedBookTitle());
+        assertEquals("Ursula K. Le Guin", payload.getRequestedBookAuthor());
         assertEquals(2002L, payload.getOfferedBookId());
+        assertEquals("Dune", payload.getOfferedBookTitle());
+        assertEquals("Frank Herbert", payload.getOfferedBookAuthor());
+        assertEquals("please exchange", payload.getRequestMessage());
         assertEquals(ExchangeStatus.ACCEPTED, payload.getStatus());
     }
 

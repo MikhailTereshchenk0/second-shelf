@@ -1,0 +1,14 @@
+databaseChangeLog:
+  - changeSet:
+      id: 003-extend-outbox-events-for-terminal-failures
+      author: Codex
+      changes:
+        - addColumn:
+            tableName: outbox_events
+            columns:
+              - column:
+                  name: failed_at
+                  type: TIMESTAMP
+              - column:
+                  name: last_error
+                  type: TEXT

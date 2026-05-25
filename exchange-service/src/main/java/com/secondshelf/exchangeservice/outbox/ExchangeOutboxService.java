@@ -16,6 +16,13 @@ public class ExchangeOutboxService {
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void recordExchangeEvent(ExchangeEventType eventType, ExchangeRequest exchangeRequest) {
-        outboxEventRepository.save(exchangeOutboxEventFactory.create(eventType, exchangeRequest));
+        recordExchangeEvent(eventType, exchangeRequest, null);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordExchangeEvent(ExchangeEventType eventType,
+                                    ExchangeRequest exchangeRequest,
+                                    ExchangeEventContext eventContext) {
+        outboxEventRepository.save(exchangeOutboxEventFactory.create(eventType, exchangeRequest, eventContext));
     }
 }

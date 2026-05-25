@@ -1,0 +1,14 @@
+databaseChangeLog:
+  - changeSet:
+      id: 004-add-completion-confirmation-columns
+      author: OpenAI
+      changes:
+        - addColumn:
+            tableName: exchange_requests
+            columns:
+              - column:
+                  name: owner_completion_confirmed_at
+                  type: TIMESTAMP
+              - column:
+                  name: requester_completion_confirmed_at
+                  type: TIMESTAMP

@@ -51,14 +51,14 @@ public interface ExchangeRepository extends JpaRepository<ExchangeRequest, Long>
     @Query("""
         select count(r) > 0
         from ExchangeRequest r
-        where r.status = :status
+        where r.status in :statuses
           and r.id <> :exchangeId
           and (
                 r.requestedBookId in :bookIds
                 or r.offeredBookId in :bookIds
               )
         """)
-    boolean existsAnotherByStatusAndBookIds(@Param("exchangeId") Long exchangeId,
-                                            @Param("bookIds") Collection<Long> bookIds,
-                                            @Param("status") ExchangeStatus status);
+    boolean existsAnotherByStatusesAndBookIds(@Param("exchangeId") Long exchangeId,
+                                              @Param("bookIds") Collection<Long> bookIds,
+                                              @Param("statuses") Collection<ExchangeStatus> statuses);
 }
