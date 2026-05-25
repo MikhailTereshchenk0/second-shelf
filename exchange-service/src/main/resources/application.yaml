@@ -52,6 +52,10 @@ exchange:
       confirm-timeout-ms: ${EXCHANGE_OUTBOX_PUBLISHER_CONFIRM_TIMEOUT_MS:10000}
       max-attempts: ${EXCHANGE_OUTBOX_PUBLISHER_MAX_ATTEMPTS:5}
 
+app:
+  security:
+    public-docs-enabled: false
+
 jwt:
   secret: ${JWT_SECRET:}
 
@@ -82,7 +86,10 @@ management:
       enabled: true
 
 springdoc:
+  api-docs:
+    enabled: ${app.security.public-docs-enabled:false}
   swagger-ui:
+    enabled: ${app.security.public-docs-enabled:false}
     path: /swagger-ui.html
     operations-sorter: method
     tags-sorter: alpha

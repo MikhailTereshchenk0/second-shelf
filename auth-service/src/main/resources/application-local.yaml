@@ -2,6 +2,10 @@ spring:
   datasource:
     password: ${DB_PASSWORD:secret}
 
+app:
+  security:
+    public-docs-enabled: true
+
 internal:
   token: ${INTERNAL_TOKEN:internal-secret-123}
 
