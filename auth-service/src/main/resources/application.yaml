@@ -4,11 +4,13 @@ server:
 spring:
   application:
     name: auth-service
+  profiles:
+    default: local
 
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${POSTGRES_PORT:5432}/${AUTH_DB_NAME:auth_db}
     username: ${DB_USERNAME:second_shelf}
-    password: ${DB_PASSWORD:secret}
+    password: ${DB_PASSWORD:}
 
   jpa:
     hibernate:
@@ -20,7 +22,7 @@ spring:
     change-log: classpath:/db/changelog/db.changelog-master.yaml
 
 internal:
-  token: ${INTERNAL_TOKEN:internal-secret-123}
+  token: ${INTERNAL_TOKEN:}
 
 user-service:
   base-url: ${USER_SERVICE_BASE_URL:http://localhost:8081}
@@ -30,7 +32,7 @@ auth:
     pepper: ${AUTH_REFRESH_TOKEN_PEPPER:}
 
 jwt:
-  secret: ${JWT_SECRET:change_this_secret_to_something_long_and_random_1234567890_change_me}
+  secret: ${JWT_SECRET:}
   expiration-ms: ${JWT_ACCESS_EXPIRATION_MS:900000}
   refresh-expiration-ms: ${JWT_REFRESH_EXPIRATION_MS:2592000000}
 

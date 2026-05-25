@@ -4,11 +4,13 @@ server:
 spring:
   application:
     name: user-service
+  profiles:
+    default: local
 
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${POSTGRES_PORT:5432}/${USER_DB_NAME:users_db}
     username: ${DB_USERNAME:second_shelf}
-    password: ${DB_PASSWORD:secret}
+    password: ${DB_PASSWORD:}
 
   jpa:
     hibernate:
@@ -20,16 +22,16 @@ spring:
     change-log: classpath:/db/changelog/db.changelog-master.yaml
 
 internal:
-  token: ${INTERNAL_TOKEN:internal-secret-123}
+  token: ${INTERNAL_TOKEN:}
 
 seed:
   admin:
-    username: ${SEED_ADMIN_USERNAME:admin}
-    password: ${SEED_ADMIN_PASSWORD:admin12345}
-    email: ${SEED_ADMIN_EMAIL:admin@secondshelf.local}
+    username: ${SEED_ADMIN_USERNAME:}
+    password: ${SEED_ADMIN_PASSWORD:}
+    email: ${SEED_ADMIN_EMAIL:}
 
 jwt:
-  secret: ${JWT_SECRET:change_this_secret_to_something_long_and_random_1234567890_change_me}
+  secret: ${JWT_SECRET:}
 
 management:
   endpoints:

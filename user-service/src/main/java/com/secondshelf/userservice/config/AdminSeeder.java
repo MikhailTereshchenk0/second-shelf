@@ -21,13 +21,13 @@ public class AdminSeeder implements CommandLineRunner {
     private final PasswordEncoder passwordEncoder;
     private final Environment environment;
 
-    @Value("${seed.admin.username:admin}")
+    @Value("${seed.admin.username}")
     private String adminUsername;
 
-    @Value("${seed.admin.password:admin12345}")
+    @Value("${seed.admin.password}")
     private String adminPassword;
 
-    @Value("${seed.admin.email:admin@secondshelf.local}")
+    @Value("${seed.admin.email}")
     private String adminEmail;
 
     @Override
@@ -58,10 +58,11 @@ public class AdminSeeder implements CommandLineRunner {
 
     boolean shouldEnforceStrictPasswordPolicy() {
         String[] activeProfiles = environment.getActiveProfiles();
-        if (activeProfiles.length == 0) {
-            return false;
+        if (activeProfiles.length > 0) {
+            return Arrays.stream(activeProfiles)
+                    .anyMatch(profile -> !"local".equalsIgnoreCase(profile));
         }
-        return Arrays.stream(activeProfiles)
+        return Arrays.stream(environment.getDefaultProfiles())
                 .noneMatch(profile -> "local".equalsIgnoreCase(profile));
     }
 }

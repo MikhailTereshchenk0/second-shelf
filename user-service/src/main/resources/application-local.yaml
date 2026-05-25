@@ -5,9 +5,11 @@ spring:
 internal:
   token: ${INTERNAL_TOKEN:internal-secret-123}
 
+seed:
+  admin:
+    username: ${SEED_ADMIN_USERNAME:admin}
+    password: ${SEED_ADMIN_PASSWORD:admin12345}
+    email: ${SEED_ADMIN_EMAIL:admin@secondshelf.local}
+
 jwt:
   secret: ${JWT_SECRET:change_this_secret_to_something_long_and_random_1234567890_change_me}
-
-auth:
-  refresh-token:
-    pepper: ${AUTH_REFRESH_TOKEN_PEPPER:local-dev-refresh-token-pepper-1a1f645d5a1f4a09b1d769e942f3a6cf}

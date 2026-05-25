@@ -4,17 +4,19 @@ server:
 spring:
   application:
     name: exchange-service
+  profiles:
+    default: local
 
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${POSTGRES_PORT:5432}/${EXCHANGE_DB_NAME:exchange_db}
     username: ${DB_USERNAME:second_shelf}
-    password: ${DB_PASSWORD:secret}
+    password: ${DB_PASSWORD:}
 
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
-    username: ${RABBITMQ_USERNAME:guest}
-    password: ${RABBITMQ_PASSWORD:guest}
+    username: ${RABBITMQ_USERNAME:}
+    password: ${RABBITMQ_PASSWORD:}
     publisher-confirm-type: correlated
     publisher-returns: true
     template:
@@ -30,7 +32,7 @@ spring:
     change-log: classpath:/db/changelog/db.changelog-master.yaml
 
 internal:
-  token: ${INTERNAL_TOKEN:internal-secret-123}
+  token: ${INTERNAL_TOKEN:}
 
 book-service:
   base-url: ${BOOK_SERVICE_BASE_URL:http://localhost:8082}
@@ -51,7 +53,7 @@ exchange:
       max-attempts: ${EXCHANGE_OUTBOX_PUBLISHER_MAX_ATTEMPTS:5}
 
 jwt:
-  secret: ${JWT_SECRET:change_this_secret_to_something_long_and_random_1234567890_change_me}
+  secret: ${JWT_SECRET:}
 
 management:
   endpoints:

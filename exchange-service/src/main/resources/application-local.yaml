@@ -1,13 +1,12 @@
 spring:
   datasource:
     password: ${DB_PASSWORD:secret}
+  rabbitmq:
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
 
 internal:
   token: ${INTERNAL_TOKEN:internal-secret-123}
 
 jwt:
   secret: ${JWT_SECRET:change_this_secret_to_something_long_and_random_1234567890_change_me}
-
-auth:
-  refresh-token:
-    pepper: ${AUTH_REFRESH_TOKEN_PEPPER:local-dev-refresh-token-pepper-1a1f645d5a1f4a09b1d769e942f3a6cf}
