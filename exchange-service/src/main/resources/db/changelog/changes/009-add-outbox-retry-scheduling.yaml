@@ -1,0 +1,31 @@
+databaseChangeLog:
+  - changeSet:
+      id: 009-add-outbox-retry-scheduling
+      author: Codex
+      changes:
+        - addColumn:
+            tableName: outbox_events
+            columns:
+              - column:
+                  name: next_attempt_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+              - column:
+                  name: first_failed_at
+                  type: TIMESTAMP
+              - column:
+                  name: error_code
+                  type: VARCHAR(100)
+
+        - createIndex:
+            tableName: outbox_events
+            indexName: idx_outbox_status_next_attempt_created
+            columns:
+              - column:
+                  name: status
+              - column:
+                  name: next_attempt_at
+              - column:
+                  name: created_at

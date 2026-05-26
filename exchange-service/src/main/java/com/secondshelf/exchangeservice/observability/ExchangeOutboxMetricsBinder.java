@@ -8,9 +8,17 @@ import io.micrometer.core.instrument.binder.MeterBinder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
+import java.util.EnumSet;
+
 @Component
 @RequiredArgsConstructor
 public class ExchangeOutboxMetricsBinder implements MeterBinder {
+
+    private static final EnumSet<OutboxEventStatus> PENDING_STATUSES = EnumSet.of(
+            OutboxEventStatus.PENDING,
+            OutboxEventStatus.RETRYABLE_FAILED
+    );
 
     private final OutboxEventRepository outboxEventRepository;
 
@@ -19,9 +27,25 @@ public class ExchangeOutboxMetricsBinder implements MeterBinder {
         Gauge.builder(
                         "exchange.outbox.events.pending.current",
                         outboxEventRepository,
-                        repository -> repository.countByStatus(OutboxEventStatus.PENDING)
+                        repository -> repository.countByStatusIn(PENDING_STATUSES)
                 )
-                .description("Current number of pending exchange outbox events.")
+                .description("Current number of pending and retryable failed exchange outbox events.")
+                .register(meterRegistry);
+
+        Gauge.builder(
+                        "exchange.outbox.events.pending_due.current",
+                        outboxEventRepository,
+                        repository -> repository.countByStatusInAndNextAttemptAtLessThanEqual(PENDING_STATUSES, LocalDateTime.now())
+                )
+                .description("Current number of due pending and retryable failed exchange outbox events.")
+                .register(meterRegistry);
+
+        Gauge.builder(
+                        "exchange.outbox.events.pending_total.current",
+                        outboxEventRepository,
+                        repository -> repository.countByStatusIn(PENDING_STATUSES)
+                )
+                .description("Current total number of pending and retryable failed exchange outbox events.")
                 .register(meterRegistry);
 
         Gauge.builder(

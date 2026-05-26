@@ -65,6 +65,9 @@ class ExchangeOutboxEventFactoryTest {
         assertEquals(0, event.getAttemptsCount());
         assertNull(event.getPublishedAt());
         assertNull(event.getFailedAt());
+        assertNull(event.getFirstFailedAt());
+        assertEquals(event.getCreatedAt(), event.getNextAttemptAt());
+        assertNull(event.getErrorCode());
         assertNull(event.getLastError());
         assertNotNull(event.getCreatedAt());
 
@@ -108,7 +111,7 @@ class ExchangeOutboxEventFactoryTest {
                 .build();
 
         // act
-        event.recordPublishFailure("Temporary RabbitMQ outage", 3);
+        event.recordPublishFailure("Temporary RabbitMQ outage", "AmqpException", 3, java.time.LocalDateTime.now().plusSeconds(5));
         event.markPublished();
 
         // assert
@@ -117,6 +120,7 @@ class ExchangeOutboxEventFactoryTest {
         assertNotNull(event.getPublishedAt());
         assertNull(event.getFailedAt());
         assertNull(event.getLastError());
+        assertNull(event.getErrorCode());
     }
 
     @Test
@@ -137,11 +141,13 @@ class ExchangeOutboxEventFactoryTest {
                 .attemptsCount(2)
                 .build();
 
-        event.recordPublishFailure("RabbitMQ unavailable", 3);
+        event.recordPublishFailure("RabbitMQ unavailable", "AmqpException", 3, java.time.LocalDateTime.now().plusSeconds(5));
 
         assertEquals(3, event.getAttemptsCount());
         assertEquals(OutboxEventStatus.TERMINAL_FAILED, event.getStatus());
         assertNotNull(event.getFailedAt());
+        assertNotNull(event.getFirstFailedAt());
         assertEquals("RabbitMQ unavailable", event.getLastError());
+        assertEquals("AmqpException", event.getErrorCode());
     }
 }

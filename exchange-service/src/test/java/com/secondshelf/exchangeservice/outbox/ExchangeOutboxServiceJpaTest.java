@@ -20,6 +20,11 @@ import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.UUID;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -79,6 +84,9 @@ class ExchangeOutboxServiceJpaTest {
         assertEquals(OutboxEventStatus.PENDING, savedEvent.getStatus());
         assertEquals(0, savedEvent.getAttemptsCount());
         assertNull(savedEvent.getFailedAt());
+        assertNull(savedEvent.getFirstFailedAt());
+        assertNotNull(savedEvent.getNextAttemptAt());
+        assertNull(savedEvent.getErrorCode());
         assertNull(savedEvent.getLastError());
         assertEquals("EXCHANGE_REQUEST", savedEvent.getAggregateType());
         assertEquals("101", savedEvent.getAggregateId());
@@ -121,6 +129,45 @@ class ExchangeOutboxServiceJpaTest {
                 () -> exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_CREATED, exchangeRequest)
         );
         assertEquals(0, outboxEventRepository.count());
+    }
+
+    @Test
+    void repositoryShouldFindOnlyDuePendingOutboxEventsInScheduleOrder() {
+        LocalDateTime now = LocalDateTime.now();
+        OutboxEvent retryableDue = buildOutboxEvent("exchange.request.accepted", OutboxEventStatus.RETRYABLE_FAILED, now.minusSeconds(20), now.minusSeconds(5));
+        OutboxEvent pendingDue = buildOutboxEvent("exchange.request.created", OutboxEventStatus.PENDING, now.minusSeconds(30), now.minusSeconds(1));
+        OutboxEvent pendingFuture = buildOutboxEvent("exchange.request.completed", OutboxEventStatus.PENDING, now.minusSeconds(40), now.plusMinutes(5));
+
+        outboxEventRepository.saveAll(List.of(pendingDue, pendingFuture, retryableDue));
+        outboxEventRepository.flush();
+
+        List<OutboxEvent> dueEvents = outboxEventRepository
+                .findTop100ByStatusInAndNextAttemptAtLessThanEqualOrderByNextAttemptAtAscCreatedAtAsc(
+                        EnumSet.of(OutboxEventStatus.PENDING, OutboxEventStatus.RETRYABLE_FAILED),
+                        now
+                );
+
+        assertEquals(2, dueEvents.size());
+        assertEquals(retryableDue.getEventId(), dueEvents.get(0).getEventId());
+        assertEquals(pendingDue.getEventId(), dueEvents.get(1).getEventId());
+    }
+
+    private OutboxEvent buildOutboxEvent(String eventType,
+                                         OutboxEventStatus status,
+                                         LocalDateTime createdAt,
+                                         LocalDateTime nextAttemptAt) {
+        UUID eventId = UUID.randomUUID();
+        return OutboxEvent.builder()
+                .eventId(eventId)
+                .aggregateType("EXCHANGE_REQUEST")
+                .aggregateId(eventId.toString())
+                .eventType(eventType)
+                .payload("{}")
+                .createdAt(createdAt)
+                .nextAttemptAt(nextAttemptAt)
+                .status(status)
+                .attemptsCount(0)
+                .build();
     }
 
     @TestConfiguration(proxyBeanMethods = false)

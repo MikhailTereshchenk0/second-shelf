@@ -70,6 +70,7 @@ public class ExchangeOutboxEventFactory {
                     .eventType(eventType.getValue())
                     .payload(objectMapper.writeValueAsString(payload))
                     .createdAt(occurredAt)
+                    .nextAttemptAt(occurredAt)
                     .status(OutboxEventStatus.PENDING)
                     .attemptsCount(0)
                     .build();
