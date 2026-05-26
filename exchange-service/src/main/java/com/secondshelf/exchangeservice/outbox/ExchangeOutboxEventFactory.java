@@ -57,6 +57,10 @@ public class ExchangeOutboxEventFactory {
                     .status(exchangeRequest.getStatus())
                     .ownerCompletionConfirmedAt(exchangeRequest.getOwnerCompletionConfirmedAt())
                     .requesterCompletionConfirmedAt(exchangeRequest.getRequesterCompletionConfirmedAt())
+                    .repairReason(exchangeRequest.getRepairReason())
+                    .repairRequiredAt(exchangeRequest.getRepairRequiredAt())
+                    .repairAttempts(exchangeRequest.getRepairAttempts())
+                    .lastRepairAttemptAt(exchangeRequest.getLastRepairAttemptAt())
                     .build();
 
             OutboxEvent outboxEvent = OutboxEvent.builder()

@@ -68,6 +68,19 @@ public class ExchangeRequest {
     @Column(name = "requester_completion_confirmed_at")
     private LocalDateTime requesterCompletionConfirmedAt;
 
+    @Column(name = "repair_reason", columnDefinition = "TEXT")
+    private String repairReason;
+
+    @Column(name = "repair_required_at")
+    private LocalDateTime repairRequiredAt;
+
+    @Builder.Default
+    @Column(name = "repair_attempts", nullable = false)
+    private Integer repairAttempts = 0;
+
+    @Column(name = "last_repair_attempt_at")
+    private LocalDateTime lastRepairAttemptAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -79,6 +92,7 @@ public class ExchangeRequest {
         var now = LocalDateTime.now();
         if (createdAt == null) createdAt = now;
         if (updatedAt == null) updatedAt = now;
+        if (repairAttempts == null) repairAttempts = 0;
     }
 
     @PreUpdate

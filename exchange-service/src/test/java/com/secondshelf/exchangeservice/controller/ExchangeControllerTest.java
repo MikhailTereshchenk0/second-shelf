@@ -403,6 +403,46 @@ class ExchangeControllerTest {
     }
 
     @Test
+    void completeShouldSerializeRepairFieldsWhenRepairRequired() throws Exception {
+        // arrange
+        ExchangeResponse response = ExchangeResponse.builder()
+                .id(12L)
+                .requestedBookId(102L)
+                .requestedBookTitle("Hyperion")
+                .requestedBookAuthor("Dan Simmons")
+                .offeredBookId(202L)
+                .offeredBookTitle("Snow Crash")
+                .offeredBookAuthor("Neal Stephenson")
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.REPAIR_REQUIRED)
+                .ownerCompletionConfirmedAt(LocalDateTime.of(2026, 5, 25, 14, 5))
+                .requesterCompletionConfirmedAt(LocalDateTime.of(2026, 5, 25, 14, 11))
+                .repairReason("PARTIAL_COMPLETION_FAILED: offered book failed")
+                .repairRequiredAt(LocalDateTime.of(2026, 5, 25, 14, 12))
+                .repairAttempts(0)
+                .lastRepairAttemptAt(LocalDateTime.of(2026, 5, 25, 14, 20))
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+
+        when(exchangeService.complete(12L, new UserPrincipal(42L, "alice"))).thenReturn(response);
+
+        // act + assert
+        mockMvc.perform(post("/api/v1/exchanges/12/complete")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(42L, "alice", List.of("ROLE_USER")))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(12))
+                .andExpect(jsonPath("$.status").value("REPAIR_REQUIRED"))
+                .andExpect(jsonPath("$.repairReason").value("PARTIAL_COMPLETION_FAILED: offered book failed"))
+                .andExpect(jsonPath("$.repairRequiredAt").value("2026-05-25T14:12:00"))
+                .andExpect(jsonPath("$.repairAttempts").value(0))
+                .andExpect(jsonPath("$.lastRepairAttemptAt").value("2026-05-25T14:20:00"));
+
+        verify(exchangeService).complete(12L, new UserPrincipal(42L, "alice"));
+    }
+
+    @Test
     void completeShouldReturnConflictContractForInvalidStatusTransition() throws Exception {
         // arrange
         when(exchangeService.complete(12L, new UserPrincipal(55L, "owner")))

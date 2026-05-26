@@ -1,0 +1,23 @@
+databaseChangeLog:
+  - changeSet:
+      id: 007-add-exchange-repair-fields
+      author: OpenAI
+      changes:
+        - addColumn:
+            tableName: exchange_requests
+            columns:
+              - column:
+                  name: repair_reason
+                  type: TEXT
+              - column:
+                  name: repair_required_at
+                  type: TIMESTAMP
+              - column:
+                  name: repair_attempts
+                  type: INT
+                  defaultValueNumeric: 0
+                  constraints:
+                    nullable: false
+              - column:
+                  name: last_repair_attempt_at
+                  type: TIMESTAMP
