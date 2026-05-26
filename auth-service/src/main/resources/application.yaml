@@ -30,6 +30,21 @@ user-service:
 auth:
   refresh-token:
     pepper: ${AUTH_REFRESH_TOKEN_PEPPER:}
+  rate-limit:
+    enabled: ${AUTH_RATE_LIMIT_ENABLED:true}
+    login:
+      capacity: ${AUTH_RATE_LIMIT_LOGIN_CAPACITY:10}
+      refill-tokens: ${AUTH_RATE_LIMIT_LOGIN_REFILL_TOKENS:10}
+      refill-period: ${AUTH_RATE_LIMIT_LOGIN_REFILL_PERIOD:1m}
+    register:
+      capacity: ${AUTH_RATE_LIMIT_REGISTER_CAPACITY:5}
+      refill-tokens: ${AUTH_RATE_LIMIT_REGISTER_REFILL_TOKENS:5}
+      refill-period: ${AUTH_RATE_LIMIT_REGISTER_REFILL_PERIOD:1m}
+    refresh:
+      capacity: ${AUTH_RATE_LIMIT_REFRESH_CAPACITY:30}
+      refill-tokens: ${AUTH_RATE_LIMIT_REFRESH_REFILL_TOKENS:30}
+      refill-period: ${AUTH_RATE_LIMIT_REFRESH_REFILL_PERIOD:1m}
+      include-token-fingerprint: ${AUTH_RATE_LIMIT_REFRESH_INCLUDE_TOKEN_FINGERPRINT:false}
 
 app:
   security:

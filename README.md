@@ -501,6 +501,11 @@ configuration; when omitted, the services use the defaults documented below.
 | `JWT_ACCESS_EXPIRATION_MS` | Access token lifetime in milliseconds. |
 | `JWT_REFRESH_EXPIRATION_MS` | Refresh token lifetime in milliseconds. |
 | `AUTH_REFRESH_TOKEN_PEPPER` | Server-side pepper for refresh token HMAC hashing; required outside the `local` Spring profile. |
+| `AUTH_RATE_LIMIT_ENABLED` | Enables in-memory auth endpoint rate limiting in `auth-service`. |
+| `AUTH_RATE_LIMIT_LOGIN_CAPACITY` / `AUTH_RATE_LIMIT_LOGIN_REFILL_TOKENS` / `AUTH_RATE_LIMIT_LOGIN_REFILL_PERIOD` | Token-bucket settings for `POST /api/auth/login`. Local default: `10` requests per `1m` per `username + client IP`. |
+| `AUTH_RATE_LIMIT_REGISTER_CAPACITY` / `AUTH_RATE_LIMIT_REGISTER_REFILL_TOKENS` / `AUTH_RATE_LIMIT_REGISTER_REFILL_PERIOD` | Token-bucket settings for `POST /api/auth/register`. Local default: `5` requests per `1m` per client IP. |
+| `AUTH_RATE_LIMIT_REFRESH_CAPACITY` / `AUTH_RATE_LIMIT_REFRESH_REFILL_TOKENS` / `AUTH_RATE_LIMIT_REFRESH_REFILL_PERIOD` | Token-bucket settings for `POST /api/auth/refresh`. Local default: `30` requests per `1m` per client IP. |
+| `AUTH_RATE_LIMIT_REFRESH_INCLUDE_TOKEN_FINGERPRINT` | When `true`, `POST /api/auth/refresh` rate-limit key also includes a SHA-256 token fingerprint without logging the raw token. |
 
 Registration in `auth-service` and internal user creation in `user-service`
 share the same password policy:
@@ -512,6 +517,12 @@ share the same password policy:
 - at least one special character;
 - no whitespace;
 - must not contain the `username` or the email local-part.
+
+`auth-service` now also applies an in-memory application-level limiter to
+`/api/auth/login`, `/api/auth/register`, and `/api/auth/refresh`. In a
+distributed production setup, the primary limiter should still live at the API
+gateway, ingress, WAF, or a shared backend such as Redis; the app-level limiter
+is intended as a defense-in-depth layer.
 
 ### PostgreSQL
 
