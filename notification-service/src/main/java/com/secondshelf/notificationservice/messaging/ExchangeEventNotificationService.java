@@ -1,12 +1,10 @@
 package com.secondshelf.notificationservice.messaging;
 
-import com.secondshelf.notificationservice.entity.Notification;
-import com.secondshelf.notificationservice.entity.NotificationStatus;
+import com.secondshelf.notificationservice.entity.NotificationChannel;
 import com.secondshelf.notificationservice.entity.NotificationType;
 import com.secondshelf.notificationservice.entity.ProcessedEvent;
 import com.secondshelf.notificationservice.exception.NotificationBadRequestException;
 import com.secondshelf.notificationservice.observability.NotificationAsyncMetrics;
-import com.secondshelf.notificationservice.repository.NotificationRepository;
 import com.secondshelf.notificationservice.repository.ProcessedEventRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,8 +24,8 @@ public class ExchangeEventNotificationService {
 
     private static final String RELATED_ENTITY_TYPE = "EXCHANGE_REQUEST";
 
-    private final NotificationRepository notificationRepository;
     private final ProcessedEventRepository processedEventRepository;
+    private final NotificationChannelDispatcher notificationChannelDispatcher;
     private final NotificationAsyncMetrics notificationAsyncMetrics;
 
     @Transactional
@@ -47,14 +45,14 @@ public class ExchangeEventNotificationService {
                 return;
             }
 
-            List<Notification> notifications = buildNotifications(eventPayload, eventType);
-            notificationRepository.saveAll(notifications);
-            notificationAsyncMetrics.incrementNotificationsCreated(eventPayload.getEventType(), notifications.size());
+            List<NotificationDeliveryCommand> commands = buildNotificationCommands(eventPayload, eventType);
+            commands.forEach(notificationChannelDispatcher::deliver);
+            notificationAsyncMetrics.incrementNotificationsCreated(eventPayload.getEventType(), commands.size());
             notificationAsyncMetrics.incrementProcessed(eventPayload.getEventType());
 
             log.info(
                     "Created {} notification(s) for exchange event eventId={}, eventType={}",
-                    notifications.size(),
+                    commands.size(),
                     eventPayload.getEventId(),
                     eventPayload.getEventType()
             );
@@ -77,37 +75,37 @@ public class ExchangeEventNotificationService {
         }
     }
 
-    private List<Notification> buildNotifications(ExchangeEventPayload eventPayload, ExchangeEventType eventType) {
+    private List<NotificationDeliveryCommand> buildNotificationCommands(ExchangeEventPayload eventPayload, ExchangeEventType eventType) {
         return switch (eventType) {
-            case EXCHANGE_REQUEST_CREATED -> List.of(buildNotification(
+            case EXCHANGE_REQUEST_CREATED -> List.of(buildNotificationCommand(
                     eventPayload.getOwnerId(),
                     NotificationType.EXCHANGE_REQUEST_CREATED,
                     "New exchange request",
                     buildCreatedMessage(eventPayload),
                     eventPayload
             ));
-            case EXCHANGE_REQUEST_ACCEPTED -> List.of(buildNotification(
+            case EXCHANGE_REQUEST_ACCEPTED -> List.of(buildNotificationCommand(
                     eventPayload.getRequesterId(),
                     NotificationType.EXCHANGE_REQUEST_ACCEPTED,
                     "Your exchange request was accepted",
                     buildAcceptedMessage(eventPayload),
                     eventPayload
             ));
-            case EXCHANGE_REQUEST_DECLINED -> List.of(buildNotification(
+            case EXCHANGE_REQUEST_DECLINED -> List.of(buildNotificationCommand(
                     eventPayload.getRequesterId(),
                     NotificationType.EXCHANGE_REQUEST_DECLINED,
                     "Your exchange request was declined",
                     buildDeclinedMessage(eventPayload),
                     eventPayload
             ));
-            case EXCHANGE_REQUEST_CANCELLED -> List.of(buildNotification(
+            case EXCHANGE_REQUEST_CANCELLED -> List.of(buildNotificationCommand(
                     eventPayload.getOwnerId(),
                     NotificationType.EXCHANGE_REQUEST_CANCELLED,
                     "Exchange request cancelled",
                     buildCancelledMessage(eventPayload),
                     eventPayload
             ));
-            case EXCHANGE_REQUEST_COMPLETION_CONFIRMED -> List.of(buildNotification(
+            case EXCHANGE_REQUEST_COMPLETION_CONFIRMED -> List.of(buildNotificationCommand(
                     resolveCompletionConfirmationRecipient(eventPayload),
                     NotificationType.EXCHANGE_REQUEST_COMPLETION_CONFIRMED,
                     "Your confirmation is needed",
@@ -115,14 +113,14 @@ public class ExchangeEventNotificationService {
                     eventPayload
             ));
             case EXCHANGE_REQUEST_COMPLETED -> List.of(
-                    buildNotification(
+                    buildNotificationCommand(
                             eventPayload.getRequesterId(),
                             NotificationType.EXCHANGE_REQUEST_COMPLETED,
                             "Exchange completed",
                             buildCompletedMessage(eventPayload),
                             eventPayload
                     ),
-                    buildNotification(
+                    buildNotificationCommand(
                             eventPayload.getOwnerId(),
                             NotificationType.EXCHANGE_REQUEST_COMPLETED,
                             "Exchange completed",
@@ -187,11 +185,11 @@ public class ExchangeEventNotificationService {
                 + " is complete.";
     }
 
-    private Notification buildNotification(Long userId,
-                                           NotificationType type,
-                                           String title,
-                                           String message,
-                                           ExchangeEventPayload eventPayload) {
+    private NotificationDeliveryCommand buildNotificationCommand(Long userId,
+                                                                 NotificationType type,
+                                                                 String title,
+                                                                 String message,
+                                                                 ExchangeEventPayload eventPayload) {
         if (userId == null) {
             throw new NotificationBadRequestException(
                     "INVALID_EXCHANGE_EVENT_RECIPIENT",
@@ -199,15 +197,15 @@ public class ExchangeEventNotificationService {
             );
         }
 
-        return Notification.builder()
+        return NotificationDeliveryCommand.builder()
+                .channel(NotificationChannel.IN_APP)
                 .userId(userId)
                 .type(type)
                 .title(title)
                 .message(message)
-                .status(NotificationStatus.UNREAD)
                 .relatedEntityType(RELATED_ENTITY_TYPE)
                 .relatedEntityId(String.valueOf(eventPayload.getExchangeRequestId()))
-                .createdAt(resolveCreatedAt(eventPayload))
+                .occurredAt(resolveCreatedAt(eventPayload))
                 .build();
     }
 

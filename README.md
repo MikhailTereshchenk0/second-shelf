@@ -470,6 +470,19 @@ Related visibility states in `book-service`:
 | `UNREAD` | Notification has not been read yet. |
 | `READ` | Notification has been marked as read. |
 
+### Notification Delivery Channels
+
+`notification-service` routes exchange-derived notification commands through a
+channel abstraction before persistence or delivery. The only implemented
+channel today is `IN_APP`, which persists rows in `notification_db`.
+Notifications also track delivery lifecycle with `CREATED`, `DELIVERED`, and
+`FAILED`; persisted in-app notifications are marked `DELIVERED`.
+
+The abstraction is intentionally ready for future channels such as `EMAIL`,
+`PUSH`, and browser realtime delivery through `WEBSOCKET` or `SSE`. Those
+providers are not implemented yet, so the public notification API remains the
+same and continues to expose stored in-app notifications.
+
 ## Notifications
 
 Current exchange-derived notifications:
@@ -751,7 +764,8 @@ Additional async observability URLs:
 - Non-owners can load a single book only when it is both `PUBLIC` and
   `AVAILABLE`; private, reserved, and exchanged books are intentionally
   hidden as `404`.
-- Dead-letter handling exists, but there is no automatic DLQ redrive flow or
-  retry backoff policy.
-- `notification-service` creates persisted in-app notifications only. There is
-  no email, push, SMS, or websocket delivery layer.
+- DLQ redrive and outbox retry are operational endpoints, not autonomous
+  self-healing flows.
+- `notification-service` currently implements only the `IN_APP` channel.
+  Email, push, SMS, and websocket/SSE providers are intentionally left as
+  future channel-handler implementations.

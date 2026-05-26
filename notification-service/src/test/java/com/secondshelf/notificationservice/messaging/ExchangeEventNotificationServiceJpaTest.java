@@ -1,6 +1,8 @@
 package com.secondshelf.notificationservice.messaging;
 
 import com.secondshelf.notificationservice.entity.Notification;
+import com.secondshelf.notificationservice.entity.NotificationChannel;
+import com.secondshelf.notificationservice.entity.NotificationDeliveryStatus;
 import com.secondshelf.notificationservice.entity.NotificationStatus;
 import com.secondshelf.notificationservice.entity.NotificationType;
 import com.secondshelf.notificationservice.entity.ProcessedEvent;
@@ -64,6 +66,8 @@ class ExchangeEventNotificationServiceJpaTest {
                 notification.getMessage()
         );
         assertEquals(NotificationStatus.UNREAD, notification.getStatus());
+        assertEquals(NotificationChannel.IN_APP, notification.getChannel());
+        assertEquals(NotificationDeliveryStatus.DELIVERED, notification.getDeliveryStatus());
         assertEquals("EXCHANGE_REQUEST", notification.getRelatedEntityType());
         assertEquals("101", notification.getRelatedEntityId());
         assertEquals(payload.getOccurredAt(), notification.getCreatedAt());
@@ -170,6 +174,8 @@ class ExchangeEventNotificationServiceJpaTest {
         );
         assertTrue(notifications.stream().allMatch(notification -> notification.getType() == NotificationType.EXCHANGE_REQUEST_COMPLETED));
         assertTrue(notifications.stream().allMatch(notification -> notification.getStatus() == NotificationStatus.UNREAD));
+        assertTrue(notifications.stream().allMatch(notification -> notification.getChannel() == NotificationChannel.IN_APP));
+        assertTrue(notifications.stream().allMatch(notification -> notification.getDeliveryStatus() == NotificationDeliveryStatus.DELIVERED));
         assertTrue(notifications.stream().allMatch(notification -> notification.getReadAt() == null));
         assertTrue(notifications.stream().allMatch(notification -> "EXCHANGE_REQUEST".equals(notification.getRelatedEntityType())));
         assertTrue(notifications.stream().allMatch(notification -> "101".equals(notification.getRelatedEntityId())));
@@ -192,8 +198,8 @@ class ExchangeEventNotificationServiceJpaTest {
                                                                          ProcessedEventRepository processedEventRepository,
                                                                          NotificationAsyncMetrics notificationAsyncMetrics) {
             return new ExchangeEventNotificationService(
-                    notificationRepository,
                     processedEventRepository,
+                    new NotificationChannelDispatcher(List.of(new InAppNotificationChannelHandler(notificationRepository))),
                     notificationAsyncMetrics
             );
         }

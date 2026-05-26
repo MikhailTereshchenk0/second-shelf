@@ -61,6 +61,14 @@ public class Notification {
     @Column(name = "related_entity_id", length = 100)
     private String relatedEntityId;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "channel", nullable = false, length = 30)
+    private NotificationChannel channel;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "delivery_status", nullable = false, length = 30)
+    private NotificationDeliveryStatus deliveryStatus;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -74,6 +82,12 @@ public class Notification {
         }
         if (status == null) {
             status = NotificationStatus.UNREAD;
+        }
+        if (channel == null) {
+            channel = NotificationChannel.IN_APP;
+        }
+        if (deliveryStatus == null) {
+            deliveryStatus = NotificationDeliveryStatus.DELIVERED;
         }
     }
 

@@ -1,11 +1,10 @@
 package com.secondshelf.notificationservice.messaging;
 
-import com.secondshelf.notificationservice.entity.Notification;
+import com.secondshelf.notificationservice.entity.NotificationChannel;
 import com.secondshelf.notificationservice.entity.NotificationType;
 import com.secondshelf.notificationservice.entity.ProcessedEvent;
 import com.secondshelf.notificationservice.exception.NotificationBadRequestException;
 import com.secondshelf.notificationservice.observability.NotificationAsyncMetrics;
-import com.secondshelf.notificationservice.repository.NotificationRepository;
 import com.secondshelf.notificationservice.repository.ProcessedEventRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,7 +20,6 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -32,10 +30,10 @@ import static org.mockito.Mockito.when;
 class ExchangeEventNotificationServiceTest {
 
     @Mock
-    private NotificationRepository notificationRepository;
+    private ProcessedEventRepository processedEventRepository;
 
     @Mock
-    private ProcessedEventRepository processedEventRepository;
+    private NotificationChannelDispatcher notificationChannelDispatcher;
 
     private ExchangeEventNotificationService exchangeEventNotificationService;
     private SimpleMeterRegistry meterRegistry;
@@ -44,8 +42,8 @@ class ExchangeEventNotificationServiceTest {
     void setUp() {
         meterRegistry = new SimpleMeterRegistry();
         exchangeEventNotificationService = new ExchangeEventNotificationService(
-                notificationRepository,
                 processedEventRepository,
+                notificationChannelDispatcher,
                 new NotificationAsyncMetrics(meterRegistry)
         );
     }
@@ -62,7 +60,8 @@ class ExchangeEventNotificationServiceTest {
         exchangeEventNotificationService.process(payload);
 
         // assert
-        Notification notification = captureSavedNotifications().get(0);
+        NotificationDeliveryCommand notification = captureDeliveryCommands().get(0);
+        assertEquals(NotificationChannel.IN_APP, notification.getChannel());
         assertEquals(55L, notification.getUserId());
         assertEquals(NotificationType.EXCHANGE_REQUEST_CREATED, notification.getType());
         assertEquals("New exchange request", notification.getTitle());
@@ -72,7 +71,7 @@ class ExchangeEventNotificationServiceTest {
         );
         assertEquals("EXCHANGE_REQUEST", notification.getRelatedEntityType());
         assertEquals("101", notification.getRelatedEntityId());
-        assertEquals(payload.getOccurredAt(), notification.getCreatedAt());
+        assertEquals(payload.getOccurredAt(), notification.getOccurredAt());
         assertEquals(
                 1.0,
                 meterRegistry.get("notification.exchange.events.processed")
@@ -96,7 +95,7 @@ class ExchangeEventNotificationServiceTest {
         exchangeEventNotificationService.process(payload);
 
         // assert
-        Notification notification = captureSavedNotifications().get(0);
+        NotificationDeliveryCommand notification = captureDeliveryCommands().get(0);
         assertEquals(42L, notification.getUserId());
         assertEquals(NotificationType.EXCHANGE_REQUEST_ACCEPTED, notification.getType());
         assertEquals("Your exchange request was accepted", notification.getTitle());
@@ -120,7 +119,7 @@ class ExchangeEventNotificationServiceTest {
         exchangeEventNotificationService.process(payload);
 
         // assert
-        Notification notification = captureSavedNotifications().get(0);
+        NotificationDeliveryCommand notification = captureDeliveryCommands().get(0);
         assertEquals(42L, notification.getUserId());
         assertEquals(NotificationType.EXCHANGE_REQUEST_DECLINED, notification.getType());
         assertEquals("Your exchange request was declined", notification.getTitle());
@@ -142,7 +141,7 @@ class ExchangeEventNotificationServiceTest {
         exchangeEventNotificationService.process(payload);
 
         // assert
-        Notification notification = captureSavedNotifications().get(0);
+        NotificationDeliveryCommand notification = captureDeliveryCommands().get(0);
         assertEquals(55L, notification.getUserId());
         assertEquals(NotificationType.EXCHANGE_REQUEST_CANCELLED, notification.getType());
         assertEquals("Exchange request cancelled", notification.getTitle());
@@ -166,7 +165,7 @@ class ExchangeEventNotificationServiceTest {
         exchangeEventNotificationService.process(payload);
 
         // assert
-        Notification notification = captureSavedNotifications().get(0);
+        NotificationDeliveryCommand notification = captureDeliveryCommands().get(0);
         assertEquals(55L, notification.getUserId());
         assertEquals(NotificationType.EXCHANGE_REQUEST_COMPLETION_CONFIRMED, notification.getType());
         assertEquals("Your confirmation is needed", notification.getTitle());
@@ -188,19 +187,19 @@ class ExchangeEventNotificationServiceTest {
         exchangeEventNotificationService.process(payload);
 
         // assert
-        List<Notification> notifications = captureSavedNotifications();
+        List<NotificationDeliveryCommand> notifications = captureDeliveryCommands();
         assertEquals(2, notifications.size());
-        assertEquals(List.of(42L, 55L), notifications.stream().map(Notification::getUserId).toList());
+        assertEquals(List.of(42L, 55L), notifications.stream().map(NotificationDeliveryCommand::getUserId).toList());
         assertEquals(List.of(
                 NotificationType.EXCHANGE_REQUEST_COMPLETED,
                 NotificationType.EXCHANGE_REQUEST_COMPLETED
-        ), notifications.stream().map(Notification::getType).toList());
+        ), notifications.stream().map(NotificationDeliveryCommand::getType).toList());
         assertEquals(
                 List.of(
                         "Your exchange of \"Dune\" by Frank Herbert and \"The Left Hand of Darkness\" by Ursula K. Le Guin is complete.",
                         "Your exchange of \"Dune\" by Frank Herbert and \"The Left Hand of Darkness\" by Ursula K. Le Guin is complete."
                 ),
-                notifications.stream().map(Notification::getMessage).toList()
+                notifications.stream().map(NotificationDeliveryCommand::getMessage).toList()
         );
         assertEquals(
                 2.0,
@@ -241,7 +240,7 @@ class ExchangeEventNotificationServiceTest {
         exchangeEventNotificationService.process(payload);
 
         // assert
-        Notification notification = captureSavedNotifications().get(0);
+        NotificationDeliveryCommand notification = captureDeliveryCommands().get(0);
         assertEquals(
                 "Another reader wants to exchange book #2002 for your book #1001.",
                 notification.getMessage()
@@ -259,7 +258,7 @@ class ExchangeEventNotificationServiceTest {
 
         // assert
         verify(processedEventRepository, never()).saveAndFlush(any(ProcessedEvent.class));
-        verify(notificationRepository, never()).saveAll(any());
+        verify(notificationChannelDispatcher, never()).deliver(any());
         assertEquals(
                 1.0,
                 meterRegistry.get("notification.exchange.events.ignored")
@@ -282,7 +281,7 @@ class ExchangeEventNotificationServiceTest {
         exchangeEventNotificationService.process(payload);
 
         // assert
-        verify(notificationRepository, never()).saveAll(any());
+        verify(notificationChannelDispatcher, never()).deliver(any());
         assertEquals(
                 1.0,
                 meterRegistry.get("notification.exchange.events.ignored")
@@ -308,7 +307,7 @@ class ExchangeEventNotificationServiceTest {
         assertEquals("UNSUPPORTED_EXCHANGE_EVENT_TYPE", exception.getCode());
         verify(processedEventRepository, never()).existsById(any());
         verify(processedEventRepository, never()).saveAndFlush(any(ProcessedEvent.class));
-        verify(notificationRepository, never()).saveAll(any());
+        verify(notificationChannelDispatcher, never()).deliver(any());
         assertEquals(
                 1.0,
                 meterRegistry.get("notification.exchange.events.ignored")
@@ -320,10 +319,10 @@ class ExchangeEventNotificationServiceTest {
     }
 
     @SuppressWarnings("unchecked")
-    private List<Notification> captureSavedNotifications() {
-        ArgumentCaptor<List<Notification>> captor = ArgumentCaptor.forClass(List.class);
-        verify(notificationRepository).saveAll(captor.capture());
-        return captor.getValue();
+    private List<NotificationDeliveryCommand> captureDeliveryCommands() {
+        ArgumentCaptor<NotificationDeliveryCommand> captor = ArgumentCaptor.forClass(NotificationDeliveryCommand.class);
+        verify(notificationChannelDispatcher, org.mockito.Mockito.atLeastOnce()).deliver(captor.capture());
+        return captor.getAllValues();
     }
 
     private ExchangeEventPayload sampleEvent(String eventType) {
