@@ -26,6 +26,8 @@ public interface ExchangeRepository extends JpaRepository<ExchangeRequest, Long>
             Collection<ExchangeStatus> statuses
     );
 
+    Optional<ExchangeRequest> findByRequesterIdAndIdempotencyKeyHash(Long requesterId, String idempotencyKeyHash);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from ExchangeRequest r where r.id = :id")
     Optional<ExchangeRequest> findByIdForUpdate(@Param("id") Long id);

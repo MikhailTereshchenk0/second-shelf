@@ -330,6 +330,8 @@ Current exchange workflow in `exchange-service`:
    - `requestedBookId`
    - `offeredBookId`
    - optional `message`
+   - optional `Idempotency-Key` header, scoped per requester, 16-128
+     characters.
 2. `exchange-service` synchronously loads both books from `book-service`.
 3. Validation on create:
    - requested and offered books must be different;
@@ -337,8 +339,14 @@ Current exchange workflow in `exchange-service`:
    - requested book must be `PUBLIC` and `AVAILABLE`;
    - offered book must belong to requester;
    - offered book must be `PUBLIC` and `AVAILABLE`;
+   - if a requester retries with the same `Idempotency-Key` and identical
+     payload, the original exchange response is returned without creating a
+     second exchange or outbox event;
+   - if the same requester reuses an `Idempotency-Key` with a different
+     requested book, offered book, or message, the request fails with
+     `IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_REQUEST`;
    - duplicate active request with the same book pair is rejected when status
-     is `PENDING`, `ACCEPTED`, or `COMPLETION_PENDING`.
+     is `PENDING`, `ACCEPTED`, `COMPLETION_PENDING`, or `REPAIR_REQUIRED`.
 4. The exchange request is stored with status `PENDING`, together with the
    current title/author snapshots of both books and the requester's username
    snapshot. The owner's username snapshot is filled later from owner-side

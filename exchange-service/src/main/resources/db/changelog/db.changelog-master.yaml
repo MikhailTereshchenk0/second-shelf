@@ -13,3 +13,5 @@ databaseChangeLog:
       file: db/changelog/changes/006-add-participant-username-snapshots.yaml
   - include:
       file: db/changelog/changes/007-add-exchange-repair-fields.yaml
+  - include:
+      file: db/changelog/changes/008-add-exchange-idempotency-key.yaml

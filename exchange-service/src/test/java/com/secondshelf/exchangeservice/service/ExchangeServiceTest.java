@@ -134,6 +134,154 @@ class ExchangeServiceTest {
     }
 
     @Test
+    void createShouldSavePendingRequestWithIdempotencyKeyHash() {
+        // arrange
+        CreateExchangeRequest request = new CreateExchangeRequest();
+        request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
+        request.setMessage("I would like to exchange this book.");
+
+        BookDto requestedBook = book(100L, 55L, "The Left Hand of Darkness", "Ursula K. Le Guin", "AVAILABLE", "PUBLIC");
+        BookDto offeredBook = book(200L, 42L, "Dune", "Frank Herbert", "AVAILABLE", "PUBLIC");
+
+        when(exchangeRepository.findByRequesterIdAndIdempotencyKeyHash(eq(42L), anyString()))
+                .thenReturn(Optional.empty());
+        when(bookServiceClient.getBook(100L)).thenReturn(requestedBook);
+        when(bookServiceClient.getBook(200L)).thenReturn(offeredBook);
+        when(exchangeRepository.existsByRequesterIdAndRequestedBookIdAndOfferedBookIdAndStatusIn(
+                42L,
+                100L,
+                200L,
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING, ExchangeStatus.REPAIR_REQUIRED)
+        )).thenReturn(false);
+        when(exchangeRepository.save(any(ExchangeRequest.class))).thenAnswer(invocation -> {
+            ExchangeRequest saved = invocation.getArgument(0);
+            saved.setId(1L);
+            return saved;
+        });
+
+        ArgumentCaptor<ExchangeRequest> exchangeCaptor = ArgumentCaptor.forClass(ExchangeRequest.class);
+
+        // act
+        ExchangeResponse response = exchangeService.create(request, new UserPrincipal(42L, "alice"), "retry-key-123456");
+
+        // assert
+        assertEquals(1L, response.getId());
+        assertEquals(ExchangeStatus.PENDING, response.getStatus());
+
+        verify(exchangeRepository).save(exchangeCaptor.capture());
+        ExchangeRequest savedRequest = exchangeCaptor.getValue();
+        assertNull(savedRequest.getIdempotencyKey());
+        assertNotNull(savedRequest.getIdempotencyKeyHash());
+        assertEquals(64, savedRequest.getIdempotencyKeyHash().length());
+        verify(exchangeOutboxService).recordExchangeEvent(
+                ExchangeEventType.EXCHANGE_REQUEST_CREATED,
+                savedRequest,
+                eventContext(42L, "alice")
+        );
+    }
+
+    @Test
+    void createShouldReturnExistingExchangeForIdenticalIdempotentReplay() {
+        // arrange
+        CreateExchangeRequest request = new CreateExchangeRequest();
+        request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
+        request.setMessage("I would like to exchange this book.");
+
+        ExchangeRequest existingRequest = ExchangeRequest.builder()
+                .id(77L)
+                .requestedBookId(100L)
+                .requestedBookTitle("The Left Hand of Darkness")
+                .requestedBookAuthor("Ursula K. Le Guin")
+                .offeredBookId(200L)
+                .offeredBookTitle("Dune")
+                .offeredBookAuthor("Frank Herbert")
+                .ownerId(55L)
+                .requesterId(42L)
+                .requesterUsernameSnapshot("alice")
+                .status(ExchangeStatus.PENDING)
+                .message("I would like to exchange this book.")
+                .idempotencyKeyHash("hash")
+                .build();
+
+        when(exchangeRepository.findByRequesterIdAndIdempotencyKeyHash(eq(42L), anyString()))
+                .thenReturn(Optional.of(existingRequest));
+
+        // act
+        ExchangeResponse response = exchangeService.create(request, new UserPrincipal(42L, "alice"), "retry-key-123456");
+
+        // assert
+        assertEquals(77L, response.getId());
+        assertEquals(ExchangeStatus.PENDING, response.getStatus());
+        assertEquals("The Left Hand of Darkness", response.getRequestedBookTitle());
+
+        verify(exchangeRepository).findByRequesterIdAndIdempotencyKeyHash(eq(42L), anyString());
+        verifyNoInteractions(bookServiceClient);
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+        verifyNoInteractions(exchangeOutboxService);
+    }
+
+    @Test
+    void createShouldRejectSameIdempotencyKeyWithDifferentPayload() {
+        // arrange
+        CreateExchangeRequest request = new CreateExchangeRequest();
+        request.setRequestedBookId(100L);
+        request.setOfferedBookId(201L);
+        request.setMessage("A different message.");
+
+        ExchangeRequest existingRequest = ExchangeRequest.builder()
+                .id(77L)
+                .requestedBookId(100L)
+                .offeredBookId(200L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.PENDING)
+                .message("I would like to exchange this book.")
+                .idempotencyKeyHash("hash")
+                .build();
+
+        when(exchangeRepository.findByRequesterIdAndIdempotencyKeyHash(eq(42L), anyString()))
+                .thenReturn(Optional.of(existingRequest));
+
+        // act
+        ExchangeConflictException exception = assertThrows(
+                ExchangeConflictException.class,
+                () -> exchangeService.create(request, new UserPrincipal(42L, "alice"), "retry-key-123456")
+        );
+
+        // assert
+        assertEquals("IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_REQUEST", exception.getCode());
+        assertEquals("Idempotency-Key was already used with a different exchange request payload.", exception.getMessage());
+
+        verifyNoInteractions(bookServiceClient);
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+        verifyNoInteractions(exchangeOutboxService);
+    }
+
+    @Test
+    void createShouldRejectInvalidIdempotencyKeyLength() {
+        // arrange
+        CreateExchangeRequest request = new CreateExchangeRequest();
+        request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
+
+        // act
+        ExchangeBadRequestException exception = assertThrows(
+                ExchangeBadRequestException.class,
+                () -> exchangeService.create(request, new UserPrincipal(42L, "alice"), "too-short")
+        );
+
+        // assert
+        assertEquals("INVALID_IDEMPOTENCY_KEY", exception.getCode());
+        assertEquals("Idempotency-Key length must be between 16 and 128 characters.", exception.getMessage());
+
+        verifyNoInteractions(exchangeRepository);
+        verifyNoInteractions(bookServiceClient);
+        verifyNoInteractions(exchangeOutboxService);
+    }
+
+    @Test
     void createShouldRejectRequestForOwnBook() {
         // arrange
         CreateExchangeRequest request = new CreateExchangeRequest();
@@ -1231,6 +1379,19 @@ class ExchangeServiceTest {
         book.setId(id);
         book.setStatus(status);
         book.setVisibility(visibility);
+        return book;
+    }
+
+    private BookDto book(Long id,
+                         Long ownerId,
+                         String title,
+                         String author,
+                         String status,
+                         String visibility) {
+        BookDto book = book(id, status, visibility);
+        book.setOwnerId(ownerId);
+        book.setTitle(title);
+        book.setAuthor(author);
         return book;
     }
 

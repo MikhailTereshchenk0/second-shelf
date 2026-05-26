@@ -62,6 +62,12 @@ public class ExchangeRequest {
     @Column(name = "message", length = 1000)
     private String message;
 
+    @Column(name = "idempotency_key", length = 128)
+    private String idempotencyKey;
+
+    @Column(name = "idempotency_key_hash", length = 64)
+    private String idempotencyKeyHash;
+
     @Column(name = "owner_completion_confirmed_at")
     private LocalDateTime ownerCompletionConfirmedAt;
 

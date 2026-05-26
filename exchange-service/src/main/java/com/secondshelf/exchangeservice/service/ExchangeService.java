@@ -28,9 +28,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.util.StringUtils;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -40,6 +45,8 @@ public class ExchangeService {
     private static final AuditLogger AUDIT_LOGGER = AuditLogger.forClass(ExchangeService.class);
     private static final String PARTIAL_COMPLETION_REPAIR_REASON_PREFIX = "PARTIAL_COMPLETION_FAILED";
     private static final String CANCEL_RELEASE_REPAIR_REASON_PREFIX = "CANCEL_RELEASE_COMPENSATION_FAILED";
+    private static final int IDEMPOTENCY_KEY_MIN_LENGTH = 16;
+    private static final int IDEMPOTENCY_KEY_MAX_LENGTH = 128;
 
     private static final List<ExchangeStatus> ACTIVE_EXCHANGE_STATUSES = List.of(
             ExchangeStatus.PENDING,
@@ -58,9 +65,36 @@ public class ExchangeService {
     private final ExchangeOutboxService exchangeOutboxService;
 
     public ExchangeResponse create(CreateExchangeRequest req, UserPrincipal principal) {
+        return create(req, principal, null);
+    }
+
+    public ExchangeResponse create(CreateExchangeRequest req, UserPrincipal principal, String idempotencyKey) {
         Long requesterId = requireUserId(principal);
+        String idempotencyKeyHash = normalizeAndHashIdempotencyKey(idempotencyKey);
 
         try {
+            if (idempotencyKeyHash != null) {
+                var existing = exchangeRepository.findByRequesterIdAndIdempotencyKeyHash(requesterId, idempotencyKeyHash);
+                if (existing.isPresent()) {
+                    ExchangeRequest existingRequest = existing.get();
+                    if (!hasSameCreatePayload(existingRequest, req)) {
+                        throw new ExchangeConflictException(
+                                "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_REQUEST",
+                                "Idempotency-Key was already used with a different exchange request payload."
+                        );
+                    }
+                    ExchangeResponse response = toResponse(existingRequest);
+                    AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_CREATE", AuditOutcome.SUCCESS)
+                            .actorUserId(requesterId)
+                            .targetUserId(response.getOwnerId())
+                            .entityId(response.getId())
+                            .reason("IDEMPOTENT_REPLAY")
+                            .attribute("status", response.getStatus())
+                            .build());
+                    return response;
+                }
+            }
+
             if (req.getRequestedBookId().equals(req.getOfferedBookId())) {
                 throw new ExchangeBadRequestException(
                         "INVALID_EXCHANGE_BOOK_SELECTION",
@@ -99,6 +133,7 @@ public class ExchangeService {
                             .requesterUsernameSnapshot(principal != null ? principal.username() : null)
                             .status(ExchangeStatus.PENDING)
                             .message(req.getMessage())
+                            .idempotencyKeyHash(idempotencyKeyHash)
                             .build()
             );
 
@@ -651,6 +686,32 @@ public class ExchangeService {
             );
         }
         return principal.userId();
+    }
+
+    private String normalizeAndHashIdempotencyKey(String idempotencyKey) {
+        if (idempotencyKey == null) {
+            return null;
+        }
+        String normalized = idempotencyKey.trim();
+        if (normalized.length() < IDEMPOTENCY_KEY_MIN_LENGTH
+                || normalized.length() > IDEMPOTENCY_KEY_MAX_LENGTH) {
+            throw new ExchangeBadRequestException(
+                    "INVALID_IDEMPOTENCY_KEY",
+                    "Idempotency-Key length must be between 16 and 128 characters."
+            );
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(normalized.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 digest is not available.", ex);
+        }
+    }
+
+    private boolean hasSameCreatePayload(ExchangeRequest existingRequest, CreateExchangeRequest req) {
+        return Objects.equals(existingRequest.getRequestedBookId(), req.getRequestedBookId())
+                && Objects.equals(existingRequest.getOfferedBookId(), req.getOfferedBookId())
+                && Objects.equals(existingRequest.getMessage(), req.getMessage());
     }
 
     private ExchangeEventContext eventContext(UserPrincipal principal) {

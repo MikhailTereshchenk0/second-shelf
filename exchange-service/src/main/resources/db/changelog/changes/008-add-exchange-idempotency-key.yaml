@@ -1,0 +1,20 @@
+databaseChangeLog:
+  - changeSet:
+      id: 008-add-exchange-idempotency-key
+      author: OpenAI
+      changes:
+        - addColumn:
+            tableName: exchange_requests
+            columns:
+              - column:
+                  name: idempotency_key
+                  type: VARCHAR(128)
+              - column:
+                  name: idempotency_key_hash
+                  type: VARCHAR(64)
+        - sql:
+            dbms: postgresql
+            sql: >-
+              CREATE UNIQUE INDEX uk_ex_req_requester_idempotency_key_hash
+              ON exchange_requests (requester_id, idempotency_key_hash)
+              WHERE idempotency_key_hash IS NOT NULL

@@ -36,6 +36,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
@@ -86,7 +87,7 @@ class ExchangeControllerTest {
                 .updatedAt(LocalDateTime.now())
                 .build();
 
-        when(exchangeService.create(any(CreateExchangeRequest.class), any(UserPrincipal.class))).thenReturn(response);
+        when(exchangeService.create(any(CreateExchangeRequest.class), any(UserPrincipal.class), isNull())).thenReturn(response);
 
         // act + assert
         mockMvc.perform(post("/api/v1/exchanges")
@@ -108,7 +109,45 @@ class ExchangeControllerTest {
                 .andExpect(jsonPath("$.ownerUsernameSnapshot").isEmpty())
                 .andExpect(jsonPath("$.status").value("PENDING"));
 
-        verify(exchangeService).create(any(CreateExchangeRequest.class), eq(new UserPrincipal(42L, "alice")));
+        verify(exchangeService).create(any(CreateExchangeRequest.class), eq(new UserPrincipal(42L, "alice")), isNull());
+    }
+
+    @Test
+    void createShouldPassIdempotencyKeyHeader() throws Exception {
+        // arrange
+        CreateExchangeRequest request = new CreateExchangeRequest();
+        request.setRequestedBookId(100L);
+        request.setOfferedBookId(200L);
+
+        ExchangeResponse response = ExchangeResponse.builder()
+                .id(1L)
+                .requestedBookId(100L)
+                .offeredBookId(200L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.PENDING)
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+
+        when(exchangeService.create(any(CreateExchangeRequest.class), any(UserPrincipal.class), eq("retry-key-123456")))
+                .thenReturn(response);
+
+        // act + assert
+        mockMvc.perform(post("/api/v1/exchanges")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(42L, "alice", List.of("ROLE_USER"))))
+                        .header("Idempotency-Key", "retry-key-123456")
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.status").value("PENDING"));
+
+        verify(exchangeService).create(
+                any(CreateExchangeRequest.class),
+                eq(new UserPrincipal(42L, "alice")),
+                eq("retry-key-123456")
+        );
     }
 
     @Test
@@ -139,7 +178,7 @@ class ExchangeControllerTest {
         request.setRequestedBookId(100L);
         request.setOfferedBookId(100L);
 
-        when(exchangeService.create(any(CreateExchangeRequest.class), any(UserPrincipal.class)))
+        when(exchangeService.create(any(CreateExchangeRequest.class), any(UserPrincipal.class), isNull()))
                 .thenThrow(new ExchangeBadRequestException(
                         "INVALID_EXCHANGE_BOOK_SELECTION",
                         "Requested book and offered book must be different."
@@ -163,7 +202,7 @@ class ExchangeControllerTest {
         request.setRequestedBookId(100L);
         request.setOfferedBookId(200L);
 
-        when(exchangeService.create(any(CreateExchangeRequest.class), any(UserPrincipal.class)))
+        when(exchangeService.create(any(CreateExchangeRequest.class), any(UserPrincipal.class), isNull()))
                 .thenThrow(new ExchangeNotFoundException(
                         "REQUESTED_BOOK_NOT_FOUND",
                         "Requested book not found."
@@ -474,7 +513,7 @@ class ExchangeControllerTest {
         request.setRequestedBookId(100L);
         request.setOfferedBookId(200L);
 
-        when(exchangeService.create(any(CreateExchangeRequest.class), any(UserPrincipal.class)))
+        when(exchangeService.create(any(CreateExchangeRequest.class), any(UserPrincipal.class), isNull()))
                 .thenReturn(ExchangeResponse.builder()
                         .id(1L)
                         .requestedBookId(100L)
