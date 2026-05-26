@@ -26,7 +26,8 @@
 | Аутентификация | login success/fail, refresh success/fail, logout, logout-all | `auth-service`, `user-service` |
 | Управление учетной записью | регистрация, блокировка, разблокировка, смена ролей, изменение профиля | `auth-service`, `user-service` |
 | Доступ к данным | попытки доступа к чужому профилю, книге, обмену, уведомлению | `user-service`, `book-service`, `exchange-service`, `notification-service` |
-| Изменение книжных данных | создание книги, публикация, скрытие, удаление, перевод в `EXCHANGED` | `book-service` |
+| Изменение книжных данных | создание книги, публикация, скрытие, удаление | `book-service` |
+| Завершение обмена и перевод книг в `EXCHANGED` | подтверждение завершения, internal transition книг в `EXCHANGED`, repair completion | `exchange-service`, `book-service` internal API |
 | Жизненный цикл обмена | создание, принятие, отклонение, отмена, подтверждение завершения, завершение | `exchange-service` |
 | Async-поток | создание outbox event, публикация, retry, terminal failure, DLQ, успешная обработка уведомления | `exchange-service`, `notification-service` |
 | Внутренние API | успешные и неуспешные вызовы `/internal/**` | `user-service`, `book-service` |
