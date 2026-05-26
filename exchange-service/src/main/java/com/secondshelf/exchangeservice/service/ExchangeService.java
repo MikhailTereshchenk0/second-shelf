@@ -45,6 +45,7 @@ public class ExchangeService {
     private static final AuditLogger AUDIT_LOGGER = AuditLogger.forClass(ExchangeService.class);
     private static final String PARTIAL_COMPLETION_REPAIR_REASON_PREFIX = "PARTIAL_COMPLETION_FAILED";
     private static final String CANCEL_RELEASE_REPAIR_REASON_PREFIX = "CANCEL_RELEASE_COMPENSATION_FAILED";
+    private static final String ACCEPT_RESERVATION_ROLLBACK_FAILED_PREFIX = "ACCEPT_RESERVATION_ROLLBACK_FAILED";
     private static final int IDEMPOTENCY_KEY_MIN_LENGTH = 16;
     private static final int IDEMPOTENCY_KEY_MAX_LENGTH = 128;
 
@@ -210,7 +211,11 @@ public class ExchangeService {
             }
 
             populateOwnerUsernameSnapshotIfMissing(req, principal);
-            reserveBothBooks(req);
+            try {
+                reserveBothBooks(req);
+            } catch (ExchangeRepairRequiredException ex) {
+                return markRepairRequired(req, principal, me, ex.getMessage(), "EXCHANGE_ACCEPT");
+            }
 
             req.setStatus(ExchangeStatus.ACCEPTED);
             List<ExchangeRequest> declinedRequests = declineConflictingPendingRequests(req.getId(), activeRequests);
@@ -458,8 +463,10 @@ public class ExchangeService {
             try {
                 if (target == RepairTarget.COMPLETED) {
                     repairCompletion(req);
-                } else {
+                } else if (target == RepairTarget.CANCELLED) {
                     repairCancellation(req);
+                } else {
+                    repairReservationRollback(req);
                 }
             } catch (RuntimeException ex) {
                 req.setStatus(ExchangeStatus.REPAIR_REQUIRED);
@@ -482,7 +489,7 @@ public class ExchangeService {
                         saved,
                         eventContext
                 );
-            } else {
+            } else if (target == RepairTarget.CANCELLED) {
                 exchangeOutboxService.recordExchangeEventIfAbsent(
                         ExchangeEventType.EXCHANGE_REQUEST_CANCELLED,
                         saved,
@@ -521,12 +528,25 @@ public class ExchangeService {
             reserveBook(req.getOfferedBookId(), "OFFERED_BOOK_RESERVATION_CONFLICT", "Offered book cannot be reserved.");
             reservedBookIds.add(req.getOfferedBookId());
         } catch (RuntimeException e) {
-            rollbackReservedBooks(reservedBookIds);
+            List<Long> rollbackFailedBookIds = rollbackReservedBooks(reservedBookIds);
+            if (!rollbackFailedBookIds.isEmpty()) {
+                throw new ExchangeRepairRequiredException(
+                        ACCEPT_RESERVATION_ROLLBACK_FAILED_PREFIX
+                                + ": reserved books="
+                                + reservedBookIds
+                                + ", rollback failed for books="
+                                + rollbackFailedBookIds
+                                + ", original reservation failure: "
+                                + e.getMessage(),
+                        e
+                );
+            }
             throw e;
         }
     }
 
-    private void rollbackReservedBooks(List<Long> reservedBookIds) {
+    private List<Long> rollbackReservedBooks(List<Long> reservedBookIds) {
+        List<Long> rollbackFailedBookIds = new ArrayList<>();
         for (int i = reservedBookIds.size() - 1; i >= 0; i--) {
             Long bookId = reservedBookIds.get(i);
             try {
@@ -540,10 +560,10 @@ public class ExchangeService {
                         .entityId(bookId)
                         .reason("ROLLBACK_RESERVED_BOOK_FAILED")
                         .build());
-                // best-effort compensation:
-                // exchange request is not accepted, but manual investigation may be required
+                rollbackFailedBookIds.add(bookId);
             }
         }
+        return rollbackFailedBookIds;
     }
 
     private List<ExchangeRequest> declineConflictingPendingRequests(Long acceptedExchangeId, List<ExchangeRequest> activeRequests) {
@@ -792,6 +812,12 @@ public class ExchangeService {
         req.setStatus(ExchangeStatus.CANCELLED);
     }
 
+    private void repairReservationRollback(ExchangeRequest req) {
+        ensureBookAvailable(req.getRequestedBookId());
+        ensureBookAvailable(req.getOfferedBookId());
+        req.setStatus(ExchangeStatus.PENDING);
+    }
+
     private void ensureBookExchangedAndPrivate(Long bookId) {
         BookDto book = getRepairBook(bookId);
         if ("EXCHANGED".equals(book.getStatus())) {
@@ -832,6 +858,9 @@ public class ExchangeService {
 
     private RepairTarget resolveRepairTarget(ExchangeRequest req) {
         String reason = req.getRepairReason();
+        if (reason != null && reason.startsWith(ACCEPT_RESERVATION_ROLLBACK_FAILED_PREFIX)) {
+            return RepairTarget.PENDING;
+        }
         if (reason != null && reason.startsWith(CANCEL_RELEASE_REPAIR_REASON_PREFIX)) {
             return RepairTarget.CANCELLED;
         }
@@ -992,6 +1021,7 @@ public class ExchangeService {
 
     private enum RepairTarget {
         COMPLETED,
-        CANCELLED
+        CANCELLED,
+        PENDING
     }
 }

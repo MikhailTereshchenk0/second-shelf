@@ -830,6 +830,57 @@ class ExchangeServiceTest {
     }
 
     @Test
+    void acceptShouldMarkRepairRequiredWhenReservationRollbackFails() {
+        // arrange
+        ExchangeRequest request = ExchangeRequest.builder()
+                .id(10L)
+                .requestedBookId(100L)
+                .offeredBookId(200L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.PENDING)
+                .build();
+
+        when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
+        when(exchangeRepository.existsAnotherByStatusesAndBookIds(
+                10L,
+                List.of(100L, 200L),
+                List.of(ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING, ExchangeStatus.REPAIR_REQUIRED)
+        )).thenReturn(false);
+        when(exchangeRepository.lockAllActiveByBookIds(
+                List.of(100L, 200L),
+                List.of(ExchangeStatus.PENDING, ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING, ExchangeStatus.REPAIR_REQUIRED)
+        )).thenReturn(List.of(request));
+        when(bookServiceClient.reserve(100L)).thenReturn(new BookDto());
+        when(bookServiceClient.reserve(200L)).thenThrow(new IllegalStateException("Offered book cannot be reserved."));
+        when(bookServiceClient.makeAvailable(100L))
+                .thenThrow(new IllegalStateException("Requested book could not be released."));
+        when(exchangeRepository.save(any(ExchangeRequest.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // act
+        ExchangeResponse response = exchangeService.accept(10L, new UserPrincipal(55L, "owner"));
+
+        // assert
+        assertEquals(ExchangeStatus.REPAIR_REQUIRED, response.getStatus());
+        assertEquals(ExchangeStatus.REPAIR_REQUIRED, request.getStatus());
+        assertTrue(response.getRepairReason().contains("ACCEPT_RESERVATION_ROLLBACK_FAILED"));
+        assertTrue(response.getRepairReason().contains("rollback failed for books=[100]"));
+        assertTrue(response.getRepairReason().contains("Offered book cannot be reserved."));
+        assertNotNull(response.getRepairRequiredAt());
+        assertEquals(0, response.getRepairAttempts());
+
+        verify(bookServiceClient).reserve(100L);
+        verify(bookServiceClient).reserve(200L);
+        verify(bookServiceClient).makeAvailable(100L);
+        verify(exchangeRepository).save(request);
+        verify(exchangeOutboxService).recordExchangeEvent(
+                ExchangeEventType.EXCHANGE_REQUEST_REPAIR_REQUIRED,
+                request,
+                eventContext(55L, "owner", 55L)
+        );
+    }
+
+    @Test
     void declineShouldAllowOwnerToDeclinePendingRequest() {
         // arrange
         ExchangeRequest request = ExchangeRequest.builder()
@@ -1314,6 +1365,55 @@ class ExchangeServiceTest {
                 ExchangeEventType.EXCHANGE_REQUEST_COMPLETED,
                 request,
                 eventContext(99L, "admin")
+        );
+    }
+
+    @Test
+    void repairShouldRestorePendingAfterReservationRollbackFailure() {
+        // arrange
+        LocalDateTime repairRequiredAt = LocalDateTime.now().minusMinutes(5);
+        ExchangeRequest request = ExchangeRequest.builder()
+                .id(10L)
+                .requestedBookId(100L)
+                .offeredBookId(200L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.REPAIR_REQUIRED)
+                .repairReason("ACCEPT_RESERVATION_ROLLBACK_FAILED: reserved books=[100], rollback failed for books=[100]")
+                .repairRequiredAt(repairRequiredAt)
+                .repairAttempts(1)
+                .build();
+
+        when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
+        when(bookServiceClient.getBook(100L)).thenReturn(book(100L, "RESERVED", "PUBLIC"));
+        when(bookServiceClient.getBook(200L)).thenReturn(book(200L, "AVAILABLE", "PUBLIC"));
+        when(bookServiceClient.makeAvailable(100L)).thenReturn(book(100L, "AVAILABLE", "PUBLIC"));
+        when(exchangeRepository.save(any(ExchangeRequest.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // act
+        ExchangeResponse response = exchangeService.repair(10L, new UserPrincipal(99L, "admin"));
+
+        // assert
+        assertEquals(ExchangeStatus.PENDING, response.getStatus());
+        assertEquals(ExchangeStatus.PENDING, request.getStatus());
+        assertEquals(2, response.getRepairAttempts());
+        assertNotNull(response.getLastRepairAttemptAt());
+        assertEquals(repairRequiredAt, response.getRepairRequiredAt());
+
+        verify(bookServiceClient).getBook(100L);
+        verify(bookServiceClient).getBook(200L);
+        verify(bookServiceClient).makeAvailable(100L);
+        verify(bookServiceClient, never()).makeAvailable(200L);
+        verify(exchangeRepository).save(request);
+        verify(exchangeOutboxService, never()).recordExchangeEventIfAbsent(
+                eq(ExchangeEventType.EXCHANGE_REQUEST_COMPLETED),
+                any(ExchangeRequest.class),
+                any(ExchangeEventContext.class)
+        );
+        verify(exchangeOutboxService, never()).recordExchangeEventIfAbsent(
+                eq(ExchangeEventType.EXCHANGE_REQUEST_CANCELLED),
+                any(ExchangeRequest.class),
+                any(ExchangeEventContext.class)
         );
     }
 
