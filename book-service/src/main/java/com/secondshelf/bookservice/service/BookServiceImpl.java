@@ -8,7 +8,6 @@ import com.secondshelf.bookservice.entity.BookStatus;
 import com.secondshelf.bookservice.entity.BookVisibility;
 import com.secondshelf.bookservice.exception.BookAccessDeniedException;
 import com.secondshelf.bookservice.exception.BookNotFoundException;
-import com.secondshelf.bookservice.exception.BookStateConflictException;
 import com.secondshelf.bookservice.repository.BookRepository;
 import com.secondshelf.bookservice.security.UserPrincipal;
 import com.secondshelf.observability.AuditEvent;
@@ -202,35 +201,6 @@ public class BookServiceImpl implements BookService {
             return response;
         } catch (RuntimeException ex) {
             AUDIT_LOGGER.log(AuditEvent.builder("BOOK_HIDE", AuditOutcome.FAILURE)
-                    .actorUserId(actorUserId)
-                    .targetUserId(actorUserId)
-                    .entityId(bookId)
-                    .reason(ex.getMessage())
-                    .build());
-            throw ex;
-        }
-    }
-
-    @Override
-    public BookResponse markExchanged(Long bookId, UserPrincipal principal) {
-        Long actorUserId = principal != null ? principal.userId() : null;
-
-        try {
-            Book book = getOwnedBook(bookId, principal);
-
-            bookLifecyclePolicy.assertCanMarkExchangedForOwner(book);
-
-            book.setStatus(BookStatus.EXCHANGED);
-            book.setVisibility(BookVisibility.PRIVATE);
-            BookResponse response = toResponse(bookRepository.save(book));
-            AUDIT_LOGGER.log(AuditEvent.builder("BOOK_MARK_EXCHANGED", AuditOutcome.SUCCESS)
-                    .actorUserId(actorUserId)
-                    .targetUserId(response.getOwnerId())
-                    .entityId(bookId)
-                    .build());
-            return response;
-        } catch (RuntimeException ex) {
-            AUDIT_LOGGER.log(AuditEvent.builder("BOOK_MARK_EXCHANGED", AuditOutcome.FAILURE)
                     .actorUserId(actorUserId)
                     .targetUserId(actorUserId)
                     .entityId(bookId)

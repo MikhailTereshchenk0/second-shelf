@@ -187,23 +187,4 @@ public class BookController {
         return bookService.hide(id, principal);
     }
 
-    @Operation(
-            summary = "Mark book as exchanged",
-            description = "Marks the book as exchanged manually"
-    )
-    @SecurityRequirement(name = "bearerAuth")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Book marked as exchanged"),
-            @ApiResponse(responseCode = "401", description = "Authentication required"),
-            @ApiResponse(responseCode = "403", description = "Access denied"),
-            @ApiResponse(responseCode = "404", description = "Book not found"),
-            @ApiResponse(responseCode = "409", description = "Book state conflict")
-    })
-    @PutMapping("/{id}/mark-exchanged")
-    public BookResponse markExchanged(
-            @PathVariable Long id,
-            @AuthenticationPrincipal UserPrincipal principal
-    ) {
-        return bookService.markExchanged(id, principal);
-    }
 }

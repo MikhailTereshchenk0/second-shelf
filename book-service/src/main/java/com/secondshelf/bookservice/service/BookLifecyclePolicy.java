@@ -98,15 +98,6 @@ public class BookLifecyclePolicy {
         }
     }
 
-    public void assertCanMarkExchangedForOwner(Book book) {
-        if (!canMarkExchanged(book)) {
-            throw new BookStateConflictException(
-                    "BOOK_NOT_EXCHANGE_COMPLETABLE",
-                    MARK_EXCHANGED_MESSAGE
-            );
-        }
-    }
-
     public void assertCanMarkExchangedInternally(Book book) {
         if (!canMarkExchanged(book)) {
             throw new ForbiddenOperationException(
