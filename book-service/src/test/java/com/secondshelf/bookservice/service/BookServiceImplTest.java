@@ -323,18 +323,6 @@ class BookServiceImplTest {
         );
     }
 
-    @Test
-    void ownerMarkExchangedShouldAlsoHideBook() {
-        Book book = ownedBook(17L, BookVisibility.PUBLIC, BookStatus.RESERVED);
-        when(bookRepository.findById(17L)).thenReturn(Optional.of(book));
-        when(bookRepository.save(any(Book.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        BookResponse response = bookService.markExchanged(17L, OWNER);
-
-        assertEquals(BookStatus.EXCHANGED, response.getStatus());
-        assertEquals(BookVisibility.PRIVATE, response.getVisibility());
-    }
-
     private Book ownedBook(Long id, BookVisibility visibility, BookStatus status) {
         return Book.builder()
                 .id(id)

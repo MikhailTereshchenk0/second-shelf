@@ -697,6 +697,11 @@ outside Compose.
 `.env.prod.example` is a placeholder template for the production-like compose
 file. Keep real production-like values outside source control.
 
+`docker-compose.prod.example.yaml` uses one PostgreSQL role,
+`PROD_POSTGRES_USER`, for all service databases. A real production deployment
+can introduce separate DB users and grants per service, but that DBA setup is
+outside the scope of this single-developer production-like stand.
+
 The current Compose stack forwards the shared RabbitMQ topology variables.
 Dead-letter and outbox reliability settings are supported by the service
 configuration; when omitted, the services use the defaults documented below.
@@ -742,8 +747,8 @@ is intended as a defense-in-depth layer.
 | `POSTGRES_DB` | Initial PostgreSQL database used by the container startup. |
 | `POSTGRES_PORT` | Host port mapped to PostgreSQL `5432`. |
 | `DB_HOST` | Database host for direct service runs outside Compose. |
-| `DB_USERNAME` | Service database username. |
-| `DB_PASSWORD` | Service database password. |
+| `DB_USERNAME` | Service database username. In the production-like compose this is sourced from `PROD_POSTGRES_USER` for every service. |
+| `DB_PASSWORD` | Service database password. In the production-like compose this is sourced from `PROD_POSTGRES_PASSWORD` for every service. |
 | `USER_DB_NAME` | `user-service` database name. |
 | `AUTH_DB_NAME` | `auth-service` database name. |
 | `BOOK_DB_NAME` | `book-service` database name. |
@@ -790,6 +795,11 @@ is intended as a defense-in-depth layer.
 | `SEED_ADMIN_USERNAME` | Admin username created on startup if it does not exist. |
 | `SEED_ADMIN_PASSWORD` | Admin password created on startup if it does not exist. In non-`local` profiles it must satisfy the same password policy as regular user registration. |
 | `SEED_ADMIN_EMAIL` | Admin email created on startup if it does not exist. |
+
+In `.env.prod.example`, the required production-like variables are
+`PROD_SEED_ADMIN_USERNAME`, `PROD_SEED_ADMIN_EMAIL`, and
+`PROD_SEED_ADMIN_PASSWORD`; Compose forwards them to `user-service` as the
+runtime `SEED_ADMIN_*` variables.
 
 ### Exchange Outbox Publisher Tuning
 

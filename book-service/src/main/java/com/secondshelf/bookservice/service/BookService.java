@@ -19,6 +19,4 @@ public interface BookService {
 
     BookResponse publish(Long bookId, UserPrincipal principal);
     BookResponse hide(Long bookId, UserPrincipal principal);
-
-    BookResponse markExchanged(Long bookId, UserPrincipal principal);
 }

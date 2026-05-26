@@ -105,18 +105,12 @@ class BookLifecyclePolicyTest {
     void markExchangedAssertionsShouldThrowExplicitCodeWhenBookIsNotReservableForCompletion() {
         Book availableBook = book(7L, BookVisibility.PUBLIC, BookStatus.AVAILABLE);
 
-        BookStateConflictException ownerException = assertThrows(
-                BookStateConflictException.class,
-                () -> policy.assertCanMarkExchangedForOwner(availableBook)
-        );
         ForbiddenOperationException internalException = assertThrows(
                 ForbiddenOperationException.class,
                 () -> policy.assertCanMarkExchangedInternally(availableBook)
         );
 
-        assertEquals("BOOK_NOT_EXCHANGE_COMPLETABLE", ownerException.getCode());
         assertEquals("BOOK_NOT_EXCHANGE_COMPLETABLE", internalException.getCode());
-        assertEquals("Book must be RESERVED to mark as EXCHANGED.", ownerException.getMessage());
         assertEquals("Book must be RESERVED to mark as EXCHANGED.", internalException.getMessage());
     }
 

@@ -28,6 +28,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
@@ -64,6 +66,9 @@ class BookControllerTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private RequestMappingHandlerMapping handlerMapping;
 
     @MockitoBean
     private BookService bookService;
@@ -243,6 +248,15 @@ class BookControllerTest {
                 .andExpect(jsonPath("$.content[0].visibility").value("PRIVATE"));
 
         verify(bookService).getMyBooks(eq(new UserPrincipal(42L, "alice")), any(Pageable.class));
+    }
+
+    @Test
+    void markExchangedRouteShouldNotExistInPublicBookApi() throws Exception {
+        assertThat(handlerMapping.getHandlerMethods().keySet())
+                .noneMatch(mapping -> mapping.getPathPatternsCondition() != null
+                        && mapping.getPathPatternsCondition().getPatternValues()
+                                .contains("/api/v1/books/{id}/mark-exchanged")
+                        && mapping.getMethodsCondition().getMethods().contains(RequestMethod.PUT));
     }
 
     private String bearer(String token) {
