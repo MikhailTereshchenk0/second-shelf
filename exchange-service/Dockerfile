@@ -11,14 +11,18 @@ FROM eclipse-temurin:17-jre-jammy
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system appuser \
+    && useradd --system --gid appuser --home-dir /app --no-create-home --shell /usr/sbin/nologin appuser
 
 WORKDIR /app
-COPY --from=builder /workspace/exchange-service.jar app.jar
+COPY --from=builder --chown=appuser:appuser /workspace/exchange-service.jar app.jar
 
 EXPOSE 8083
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=10 \
   CMD curl -fsS http://localhost:8083/actuator/health/readiness || exit 1
 
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+USER appuser
+
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar \"$@\"", "--"]

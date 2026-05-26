@@ -562,6 +562,11 @@ Notes for the current Compose setup:
   with container DNS names in `docker-compose.yaml`.
 - Service containers expose Docker health checks based on
   `/actuator/health/readiness`.
+- Java service runtime images create and run as the non-root `appuser`. The
+  application JAR is copied with `appuser` ownership, while `curl` remains in
+  the image only for Docker health checks.
+- JVM container options can be passed through `JAVA_OPTS`, for example
+  `JAVA_OPTS=-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError`.
 - Startup dependencies wait for PostgreSQL, RabbitMQ, and required upstream
   services to become healthy.
 
@@ -598,6 +603,17 @@ Production-like compose uses `SPRING_PROFILES_ACTIVE=prod` for every service.
 Secrets are required through environment variables and the file does not provide
 demo defaults. Direct service access is intentionally unavailable in this mode;
 clients should call the gateway only.
+
+### Container Runtime Security
+
+All Java service Dockerfiles keep the Maven build stage unchanged and harden the
+runtime stage. Runtime containers use a dedicated non-root `appuser`, copy the
+application JAR with that user's ownership, and run `java` under that user. The
+readiness health checks continue to use `curl` against
+`/actuator/health/readiness`; no additional runtime packages are installed.
+
+Use `JAVA_OPTS` to pass JVM settings appropriate for the container limit, such
+as memory percentage, garbage collector, or failure behavior options.
 
 ## API Conventions
 
