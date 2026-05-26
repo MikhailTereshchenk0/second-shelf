@@ -1,5 +1,8 @@
 package com.secondshelf.authservice.service.impl;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.secondshelf.authservice.client.UserServiceClient;
 import com.secondshelf.authservice.client.dto.UserAuthResponse;
 import com.secondshelf.authservice.client.dto.UserClaimsResponse;
@@ -10,6 +13,7 @@ import com.secondshelf.authservice.security.JwtTokenProvider;
 import com.secondshelf.authservice.service.RefreshTokenService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.LoggerFactory;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -74,18 +78,35 @@ class AuthServiceImplTest {
         LoginRequest request = new LoginRequest();
         request.setUsername("alice");
         request.setPassword("wrong-password");
+        Logger logger = (Logger) LoggerFactory.getLogger(AuthServiceImpl.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
 
         when(userServiceClient.authenticate("alice", "wrong-password")).thenReturn(null);
 
         // act
-        ResponseStatusException exception = assertThrows(
-                ResponseStatusException.class,
-                () -> authService.login(request)
-        );
+        ResponseStatusException exception;
+        try {
+            exception = assertThrows(
+                    ResponseStatusException.class,
+                    () -> authService.login(request)
+            );
+        } finally {
+            logger.detachAppender(appender);
+        }
 
         // assert
         assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatusCode());
         assertEquals("Invalid username or password.", exception.getReason());
+        assertFalse(appender.list.isEmpty());
+
+        String auditMessage = appender.list.get(0).getFormattedMessage();
+        assertTrue(auditMessage.contains("eventType=AUTH_LOGIN"));
+        assertTrue(auditMessage.contains("outcome=FAILURE"));
+        assertTrue(auditMessage.contains("errorCode=INVALID_CREDENTIALS"));
+        assertFalse(auditMessage.contains("wrong-password"));
+        assertFalse(auditMessage.contains("password="));
 
         verify(userServiceClient).authenticate("alice", "wrong-password");
         verifyNoInteractions(refreshTokenService, jwtTokenProvider);

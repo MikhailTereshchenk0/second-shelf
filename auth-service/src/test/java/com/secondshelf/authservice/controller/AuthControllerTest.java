@@ -7,6 +7,7 @@ import com.secondshelf.authservice.dto.RefreshRequest;
 import com.secondshelf.authservice.dto.RegisterRequest;
 import com.secondshelf.authservice.dto.TokenPairResponse;
 import com.secondshelf.authservice.exception.handler.GlobalExceptionHandler;
+import com.secondshelf.authservice.observability.CorrelationId;
 import com.secondshelf.authservice.security.JwtAuthenticationFilter;
 import com.secondshelf.authservice.security.JwtTokenProvider;
 import com.secondshelf.authservice.service.AuthService;
@@ -22,6 +23,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -33,6 +35,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(AuthController.class)
 @Import({SecurityConfig.class, JwtAuthenticationFilter.class, GlobalExceptionHandler.class})
 class AuthControllerTest {
+
+    private static final String UUID_PATTERN =
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
 
     @Autowired
     private MockMvc mockMvc;
@@ -136,6 +141,23 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.tokenType").value("Bearer"));
 
         verify(authService).login(any(LoginRequest.class));
+    }
+
+    @Test
+    void loginShouldPreserveCorrelationIdWhenProvided() throws Exception {
+        LoginRequest request = new LoginRequest();
+        request.setUsername("alice");
+        request.setPassword("password123");
+
+        when(authService.login(any(LoginRequest.class)))
+                .thenReturn(new TokenPairResponse("access-token", "refresh-token", "Bearer"));
+
+        mockMvc.perform(post("/api/auth/login")
+                        .header(CorrelationId.HEADER_NAME, "corr-auth-http-123")
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(header().string(CorrelationId.HEADER_NAME, "corr-auth-http-123"));
     }
 
     @Test
@@ -247,5 +269,12 @@ class AuthControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username").value("alice"))
                 .andExpect(jsonPath("$.roles[0]").value("ROLE_USER"));
+    }
+
+    @Test
+    void pingShouldGenerateCorrelationIdWhenHeaderIsMissing() throws Exception {
+        mockMvc.perform(get("/api/auth/ping"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(CorrelationId.HEADER_NAME, matchesPattern(UUID_PATTERN)));
     }
 }

@@ -4,9 +4,13 @@ import com.secondshelf.notificationservice.dto.NotificationResponse;
 import com.secondshelf.notificationservice.entity.Notification;
 import com.secondshelf.notificationservice.entity.NotificationStatus;
 import com.secondshelf.notificationservice.exception.NotificationForbiddenException;
+import com.secondshelf.notificationservice.exception.NotificationException;
 import com.secondshelf.notificationservice.exception.NotificationNotFoundException;
 import com.secondshelf.notificationservice.repository.NotificationRepository;
 import com.secondshelf.notificationservice.security.UserPrincipal;
+import com.secondshelf.observability.AuditEvent;
+import com.secondshelf.observability.AuditLogger;
+import com.secondshelf.observability.AuditOutcome;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -18,6 +22,8 @@ import java.time.LocalDateTime;
 @Service
 @RequiredArgsConstructor
 public class NotificationService {
+
+    private static final AuditLogger AUDIT_LOGGER = AuditLogger.forClass(NotificationService.class);
 
     private final NotificationRepository notificationRepository;
 
@@ -37,29 +43,61 @@ public class NotificationService {
     @Transactional
     public NotificationResponse markAsRead(Long notificationId, UserPrincipal principal) {
         Long userId = requireUserId(principal);
-        Notification notification = notificationRepository.findByIdAndUserId(notificationId, userId)
-                .orElseThrow(() -> new NotificationNotFoundException(
-                        "NOTIFICATION_NOT_FOUND",
-                        "Notification not found."
-                ));
 
-        if (notification.getStatus() == NotificationStatus.UNREAD) {
-            notification.markAsRead();
-            notificationRepository.save(notification);
+        try {
+            Notification notification = notificationRepository.findByIdAndUserId(notificationId, userId)
+                    .orElseThrow(() -> new NotificationNotFoundException(
+                            "NOTIFICATION_NOT_FOUND",
+                            "Notification not found."
+                    ));
+
+            if (notification.getStatus() == NotificationStatus.UNREAD) {
+                notification.markAsRead();
+                notificationRepository.save(notification);
+            }
+
+            NotificationResponse response = toResponse(notification);
+            AUDIT_LOGGER.log(AuditEvent.builder("NOTIFICATION_MARK_READ", AuditOutcome.SUCCESS)
+                    .actorUserId(userId)
+                    .targetUserId(userId)
+                    .entityId(notificationId)
+                    .build());
+            return response;
+        } catch (RuntimeException ex) {
+            AUDIT_LOGGER.log(AuditEvent.builder("NOTIFICATION_MARK_READ", AuditOutcome.FAILURE)
+                    .actorUserId(userId)
+                    .targetUserId(userId)
+                    .entityId(notificationId)
+                    .reason(ex.getMessage())
+                    .errorCode(resolveErrorCode(ex))
+                    .build());
+            throw ex;
         }
-
-        return toResponse(notification);
     }
 
     @Transactional
     public void markAllAsRead(UserPrincipal principal) {
         Long userId = requireUserId(principal);
-        notificationRepository.markAllAsReadByUserId(
-                userId,
-                NotificationStatus.UNREAD,
-                NotificationStatus.READ,
-                LocalDateTime.now()
-        );
+        try {
+            notificationRepository.markAllAsReadByUserId(
+                    userId,
+                    NotificationStatus.UNREAD,
+                    NotificationStatus.READ,
+                    LocalDateTime.now()
+            );
+            AUDIT_LOGGER.log(AuditEvent.builder("NOTIFICATION_MARK_READ_ALL", AuditOutcome.SUCCESS)
+                    .actorUserId(userId)
+                    .targetUserId(userId)
+                    .build());
+        } catch (RuntimeException ex) {
+            AUDIT_LOGGER.log(AuditEvent.builder("NOTIFICATION_MARK_READ_ALL", AuditOutcome.FAILURE)
+                    .actorUserId(userId)
+                    .targetUserId(userId)
+                    .reason(ex.getMessage())
+                    .errorCode(resolveErrorCode(ex))
+                    .build());
+            throw ex;
+        }
     }
 
     private Long requireUserId(UserPrincipal principal) {
@@ -85,5 +123,12 @@ public class NotificationService {
                 .createdAt(notification.getCreatedAt())
                 .readAt(notification.getReadAt())
                 .build();
+    }
+
+    private String resolveErrorCode(RuntimeException ex) {
+        if (ex instanceof NotificationException notificationException) {
+            return notificationException.getCode();
+        }
+        return null;
     }
 }

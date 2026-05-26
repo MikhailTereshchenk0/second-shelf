@@ -2,6 +2,9 @@ package com.secondshelf.authservice.service;
 
 import com.secondshelf.authservice.entity.RefreshToken;
 import com.secondshelf.authservice.repository.RefreshTokenRepository;
+import com.secondshelf.observability.AuditEvent;
+import com.secondshelf.observability.AuditLogger;
+import com.secondshelf.observability.AuditOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,6 +26,7 @@ import java.util.UUID;
 public class RefreshTokenService {
 
     private static final Logger log = LoggerFactory.getLogger(RefreshTokenService.class);
+    private static final AuditLogger AUDIT_LOGGER = AuditLogger.forClass(RefreshTokenService.class);
     private static final String HMAC_SHA256 = "HmacSHA256";
 
     private final RefreshTokenRepository refreshTokenRepository;
@@ -123,19 +127,20 @@ public class RefreshTokenService {
      * Отозвать конкретный refresh token (logout на одном устройстве).
      */
     @Transactional
-    public void revoke(String rawRefreshToken) {
+    public Long revoke(String rawRefreshToken) {
         if (rawRefreshToken == null || rawRefreshToken.isBlank()) {
-            return;
+            return null;
         }
 
         String hash = hmacSha256Hex(rawRefreshToken);
 
-        refreshTokenRepository.findByTokenHashForUpdate(hash).ifPresent(token -> {
+        return refreshTokenRepository.findByTokenHashForUpdate(hash).map(token -> {
             if (token.getRevokedAt() == null) {
                 token.setRevokedAt(LocalDateTime.now(clock));
                 refreshTokenRepository.save(token);
             }
-        });
+            return token.getUserId();
+        }).orElse(null);
     }
 
     /**
@@ -149,14 +154,17 @@ public class RefreshTokenService {
     }
 
     @Transactional
-    public void revokeAllByRefresh(String rawRefreshToken) {
+    public Long revokeAllByRefresh(String rawRefreshToken) {
         if (rawRefreshToken == null || rawRefreshToken.isBlank()) {
-            return;
+            return null;
         }
 
         String hash = hmacSha256Hex(rawRefreshToken);
 
-        refreshTokenRepository.findByTokenHashForUpdate(hash).ifPresent(token -> revokeAll(token.getUserId()));
+        return refreshTokenRepository.findByTokenHashForUpdate(hash).map(token -> {
+            revokeAll(token.getUserId());
+            return token.getUserId();
+        }).orElse(null);
     }
 
     private RefreshToken buildRefreshToken(
@@ -190,13 +198,17 @@ public class RefreshTokenService {
         refreshTokenRepository.findAllByTokenFamilyIdAndRevokedAtIsNullForUpdate(current.getTokenFamilyId())
                 .forEach(token -> token.setRevokedAt(now));
 
-        log.warn(
-                "security_audit event=refresh_token_reuse_detected userId={} tokenFamilyId={} refreshTokenId={} detectedAt={}",
-                current.getUserId(),
-                current.getTokenFamilyId(),
-                current.getId(),
-                now
-        );
+        AUDIT_LOGGER.log(AuditEvent.builder("AUTH_REFRESH_TOKEN_REUSE_DETECTED", AuditOutcome.FAILURE)
+                .actorUserId(current.getUserId())
+                .targetUserId(current.getUserId())
+                .entityId(current.getId())
+                .reason("Refresh token reuse detected")
+                .errorCode("REFRESH_TOKEN_REUSE_DETECTED")
+                .attribute("tokenFamilyId", current.getTokenFamilyId())
+                .attribute("detectedAt", now)
+                .build());
+
+        log.warn("Refresh token reuse detected for userId={} refreshTokenId={}", current.getUserId(), current.getId());
     }
 
     private IssuedToken prepareIssuedToken() {

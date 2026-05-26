@@ -11,6 +11,9 @@ import com.secondshelf.bookservice.exception.BookNotFoundException;
 import com.secondshelf.bookservice.exception.BookStateConflictException;
 import com.secondshelf.bookservice.repository.BookRepository;
 import com.secondshelf.bookservice.security.UserPrincipal;
+import com.secondshelf.observability.AuditEvent;
+import com.secondshelf.observability.AuditLogger;
+import com.secondshelf.observability.AuditOutcome;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -24,43 +27,98 @@ import java.util.List;
 @Transactional
 public class BookServiceImpl implements BookService {
 
+    private static final AuditLogger AUDIT_LOGGER = AuditLogger.forClass(BookServiceImpl.class);
+
     private final BookRepository bookRepository;
 
     @Override
     public BookResponse create(CreateBookRequest request, UserPrincipal principal) {
-        BookVisibility visibility = request.getVisibility() == null
-                ? BookVisibility.PRIVATE
-                : request.getVisibility();
+        Long actorUserId = principal != null ? principal.userId() : null;
 
-        Book book = Book.builder()
-                .ownerId(requireUserId(principal))
-                .title(request.getTitle())
-                .author(request.getAuthor())
-                .description(request.getDescription())
-                .visibility(visibility)
-                .status(BookStatus.AVAILABLE)
-                .build();
+        try {
+            BookVisibility visibility = request.getVisibility() == null
+                    ? BookVisibility.PRIVATE
+                    : request.getVisibility();
 
-        return toResponse(bookRepository.save(book));
+            Book book = Book.builder()
+                    .ownerId(requireUserId(principal))
+                    .title(request.getTitle())
+                    .author(request.getAuthor())
+                    .description(request.getDescription())
+                    .visibility(visibility)
+                    .status(BookStatus.AVAILABLE)
+                    .build();
+
+            BookResponse response = toResponse(bookRepository.save(book));
+            AUDIT_LOGGER.log(AuditEvent.builder("BOOK_CREATE", AuditOutcome.SUCCESS)
+                    .actorUserId(actorUserId)
+                    .targetUserId(response.getOwnerId())
+                    .entityId(response.getId())
+                    .build());
+            return response;
+        } catch (RuntimeException ex) {
+            AUDIT_LOGGER.log(AuditEvent.builder("BOOK_CREATE", AuditOutcome.FAILURE)
+                    .actorUserId(actorUserId)
+                    .targetUserId(actorUserId)
+                    .reason(ex.getMessage())
+                    .build());
+            throw ex;
+        }
     }
 
     @Override
     public BookResponse update(Long bookId, UpdateBookRequest request, UserPrincipal principal) {
-        Book book = getOwnedBook(bookId, principal);
-        assertNotExchanged(book);
+        Long actorUserId = principal != null ? principal.userId() : null;
 
-        if (request.getTitle() != null) book.setTitle(request.getTitle());
-        if (request.getAuthor() != null) book.setAuthor(request.getAuthor());
-        if (request.getDescription() != null) book.setDescription(request.getDescription());
+        try {
+            Book book = getOwnedBook(bookId, principal);
+            assertNotExchanged(book);
 
-        return toResponse(bookRepository.save(book));
+            if (request.getTitle() != null) book.setTitle(request.getTitle());
+            if (request.getAuthor() != null) book.setAuthor(request.getAuthor());
+            if (request.getDescription() != null) book.setDescription(request.getDescription());
+
+            BookResponse response = toResponse(bookRepository.save(book));
+            AUDIT_LOGGER.log(AuditEvent.builder("BOOK_UPDATE", AuditOutcome.SUCCESS)
+                    .actorUserId(actorUserId)
+                    .targetUserId(response.getOwnerId())
+                    .entityId(bookId)
+                    .build());
+            return response;
+        } catch (RuntimeException ex) {
+            AUDIT_LOGGER.log(AuditEvent.builder("BOOK_UPDATE", AuditOutcome.FAILURE)
+                    .actorUserId(actorUserId)
+                    .targetUserId(actorUserId)
+                    .entityId(bookId)
+                    .reason(ex.getMessage())
+                    .build());
+            throw ex;
+        }
     }
 
     @Override
     public void delete(Long bookId, UserPrincipal principal) {
-        Book book = getOwnedBook(bookId, principal);
-        assertNotExchanged(book);
-        bookRepository.delete(book);
+        Long actorUserId = principal != null ? principal.userId() : null;
+
+        try {
+            Book book = getOwnedBook(bookId, principal);
+            assertNotExchanged(book);
+            bookRepository.delete(book);
+
+            AUDIT_LOGGER.log(AuditEvent.builder("BOOK_DELETE", AuditOutcome.SUCCESS)
+                    .actorUserId(actorUserId)
+                    .targetUserId(book.getOwnerId())
+                    .entityId(bookId)
+                    .build());
+        } catch (RuntimeException ex) {
+            AUDIT_LOGGER.log(AuditEvent.builder("BOOK_DELETE", AuditOutcome.FAILURE)
+                    .actorUserId(actorUserId)
+                    .targetUserId(actorUserId)
+                    .entityId(bookId)
+                    .reason(ex.getMessage())
+                    .build());
+            throw ex;
+        }
     }
 
     @Override
@@ -105,32 +163,86 @@ public class BookServiceImpl implements BookService {
 
     @Override
     public BookResponse publish(Long bookId, UserPrincipal principal) {
-        Book book = getOwnedBook(bookId, principal);
-        assertNotExchanged(book);
+        Long actorUserId = principal != null ? principal.userId() : null;
 
-        book.setVisibility(BookVisibility.PUBLIC);
-        return toResponse(bookRepository.save(book));
+        try {
+            Book book = getOwnedBook(bookId, principal);
+            assertNotExchanged(book);
+
+            book.setVisibility(BookVisibility.PUBLIC);
+            BookResponse response = toResponse(bookRepository.save(book));
+            AUDIT_LOGGER.log(AuditEvent.builder("BOOK_PUBLISH", AuditOutcome.SUCCESS)
+                    .actorUserId(actorUserId)
+                    .targetUserId(response.getOwnerId())
+                    .entityId(bookId)
+                    .build());
+            return response;
+        } catch (RuntimeException ex) {
+            AUDIT_LOGGER.log(AuditEvent.builder("BOOK_PUBLISH", AuditOutcome.FAILURE)
+                    .actorUserId(actorUserId)
+                    .targetUserId(actorUserId)
+                    .entityId(bookId)
+                    .reason(ex.getMessage())
+                    .build());
+            throw ex;
+        }
     }
 
     @Override
     public BookResponse hide(Long bookId, UserPrincipal principal) {
-        Book book = getOwnedBook(bookId, principal);
-        assertNotExchanged(book);
+        Long actorUserId = principal != null ? principal.userId() : null;
 
-        book.setVisibility(BookVisibility.PRIVATE);
-        return toResponse(bookRepository.save(book));
+        try {
+            Book book = getOwnedBook(bookId, principal);
+            assertNotExchanged(book);
+
+            book.setVisibility(BookVisibility.PRIVATE);
+            BookResponse response = toResponse(bookRepository.save(book));
+            AUDIT_LOGGER.log(AuditEvent.builder("BOOK_HIDE", AuditOutcome.SUCCESS)
+                    .actorUserId(actorUserId)
+                    .targetUserId(response.getOwnerId())
+                    .entityId(bookId)
+                    .build());
+            return response;
+        } catch (RuntimeException ex) {
+            AUDIT_LOGGER.log(AuditEvent.builder("BOOK_HIDE", AuditOutcome.FAILURE)
+                    .actorUserId(actorUserId)
+                    .targetUserId(actorUserId)
+                    .entityId(bookId)
+                    .reason(ex.getMessage())
+                    .build());
+            throw ex;
+        }
     }
 
     @Override
     public BookResponse markExchanged(Long bookId, UserPrincipal principal) {
-        Book book = getOwnedBook(bookId, principal);
+        Long actorUserId = principal != null ? principal.userId() : null;
 
-        if (book.getStatus() != BookStatus.RESERVED) {
-            throw new BookStateConflictException("Book must be RESERVED to mark as EXCHANGED.");
+        try {
+            Book book = getOwnedBook(bookId, principal);
+
+            if (book.getStatus() != BookStatus.RESERVED) {
+                throw new BookStateConflictException("Book must be RESERVED to mark as EXCHANGED.");
+            }
+
+            book.setStatus(BookStatus.EXCHANGED);
+            BookResponse response = toResponse(bookRepository.save(book));
+            AUDIT_LOGGER.log(AuditEvent.builder("BOOK_MARK_EXCHANGED", AuditOutcome.SUCCESS)
+                    .actorUserId(actorUserId)
+                    .targetUserId(response.getOwnerId())
+                    .entityId(bookId)
+                    .build());
+            return response;
+        } catch (RuntimeException ex) {
+            AUDIT_LOGGER.log(AuditEvent.builder("BOOK_MARK_EXCHANGED", AuditOutcome.FAILURE)
+                    .actorUserId(actorUserId)
+                    .targetUserId(actorUserId)
+                    .entityId(bookId)
+                    .reason(ex.getMessage())
+                    .build());
+            throw ex;
         }
-
-        book.setStatus(BookStatus.EXCHANGED);
-        return toResponse(bookRepository.save(book));
     }
 
     private Book getOwnedBook(Long bookId, UserPrincipal principal) {

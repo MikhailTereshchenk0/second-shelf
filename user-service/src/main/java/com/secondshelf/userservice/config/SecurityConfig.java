@@ -1,5 +1,6 @@
 package com.secondshelf.userservice.config;
 
+import com.secondshelf.userservice.observability.CorrelationIdFilter;
 import com.secondshelf.userservice.security.JwtAuthenticationFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -44,7 +45,13 @@ public class SecurityConfig {
     private boolean publicDocsEnabled;
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    CorrelationIdFilter correlationIdFilter() {
+        return new CorrelationIdFilter();
+    }
+
+    @Bean
+    SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                            CorrelationIdFilter correlationIdFilter) throws Exception {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -69,8 +76,9 @@ public class SecurityConfig {
                     auth.requestMatchers("/api/v1/users/**").authenticated();
                     auth.anyRequest().denyAll();
                 })
-                .addFilterBefore(internalTokenFilter, UsernamePasswordAuthenticationFilter.class)
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(correlationIdFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(internalTokenFilter, CorrelationIdFilter.class)
+                .addFilterAfter(jwtAuthenticationFilter, InternalTokenFilter.class)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .build();

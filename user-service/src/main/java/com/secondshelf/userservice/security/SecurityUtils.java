@@ -11,6 +11,20 @@ public final class SecurityUtils {
         return auth != null ? auth.getName() : null;
     }
 
+    public static Long currentUserId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) {
+            return null;
+        }
+
+        Object principal = auth.getPrincipal();
+        if (principal instanceof AuthenticatedUser authenticatedUser) {
+            return authenticatedUser.getUserId();
+        }
+
+        return null;
+    }
+
     public static boolean isAdmin() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null) return false;

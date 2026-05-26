@@ -19,6 +19,7 @@
     <description>Multi-module backend for Second Shelf</description>
 
     <modules>
+        <module>observability-common</module>
         <module>auth-service</module>
         <module>user-service</module>
         <module>book-service</module>

@@ -7,6 +7,7 @@ import com.secondshelf.userservice.dto.PublicUserProfileResponse;
 import com.secondshelf.userservice.dto.UpdateUserProfileRequest;
 import com.secondshelf.userservice.entity.Role;
 import com.secondshelf.userservice.exception.handler.GlobalExceptionHandler;
+import com.secondshelf.userservice.observability.CorrelationId;
 import com.secondshelf.userservice.security.AuthenticatedUser;
 import com.secondshelf.userservice.security.JwtAuthenticationFilter;
 import com.secondshelf.userservice.service.UserService;
@@ -31,6 +32,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -170,6 +172,22 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.enabled").value(true));
 
         verify(userService).updateProfile(eq(11L), org.mockito.ArgumentMatchers.any(UpdateUserProfileRequest.class));
+    }
+
+    @Test
+    void getByIdShouldPreserveCorrelationIdWhenProvided() throws Exception {
+        PublicUserProfileResponse response = PublicUserProfileResponse.builder()
+                .id(7L)
+                .username("alice")
+                .build();
+
+        when(userService.getById(7L)).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/users/7")
+                        .header(CorrelationId.HEADER_NAME, "corr-user-http-123")
+                        .with(SecurityMockMvcRequestPostProcessors.user("reader").roles("USER")))
+                .andExpect(status().isOk())
+                .andExpect(header().string(CorrelationId.HEADER_NAME, "corr-user-http-123"));
     }
 
     private UsernamePasswordAuthenticationToken authenticatedUser(Long userId, String username, String... roles) {
