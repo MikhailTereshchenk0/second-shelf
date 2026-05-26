@@ -16,6 +16,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -40,6 +41,9 @@ class BookServiceImplTest {
 
     @Mock
     private BookRepository bookRepository;
+
+    @Spy
+    private BookLifecyclePolicy bookLifecyclePolicy = new BookLifecyclePolicy();
 
     @InjectMocks
     private BookServiceImpl bookService;
@@ -102,6 +106,7 @@ class BookServiceImplTest {
                 () -> bookService.getById(2L, OTHER_USER)
         );
 
+        assertEquals("BOOK_NOT_AVAILABLE_FOR_PUBLIC_VIEW", exception.getCode());
         assertEquals("Book with id = 2 not found.", exception.getMessage());
     }
 
@@ -164,6 +169,7 @@ class BookServiceImplTest {
                 () -> bookService.update(7L, request, OWNER)
         );
 
+        assertEquals("BOOK_NOT_AVAILABLE_FOR_MODIFICATION", exception.getCode());
         assertEquals(
                 "Book must be AVAILABLE for owner-side update/delete/publish/hide operations.",
                 exception.getMessage()

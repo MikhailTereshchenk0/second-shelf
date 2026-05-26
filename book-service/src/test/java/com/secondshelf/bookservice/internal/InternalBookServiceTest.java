@@ -4,10 +4,12 @@ import com.secondshelf.bookservice.entity.Book;
 import com.secondshelf.bookservice.entity.BookStatus;
 import com.secondshelf.bookservice.entity.BookVisibility;
 import com.secondshelf.bookservice.repository.BookRepository;
+import com.secondshelf.bookservice.service.BookLifecyclePolicy;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
@@ -20,6 +22,9 @@ class InternalBookServiceTest {
 
     @Mock
     private BookRepository bookRepository;
+
+    @Spy
+    private BookLifecyclePolicy bookLifecyclePolicy = new BookLifecyclePolicy();
 
     @InjectMocks
     private InternalBookService internalBookService;
