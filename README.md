@@ -10,6 +10,8 @@ persisted in-app notifications built through the outbox pattern.
 ## Documentation
 
 - [Security documentation pack](docs/security/README.md)
+- [Architecture decision records](docs/adr)
+- [Diploma practical part summary](docs/diploma/practical-part-summary.md)
 
 ## Project Structure
 
@@ -894,23 +896,74 @@ kept out of normal `test` and `package` workflows.
      the message is returned to the DLQ and reported in the response instead
      of being dropped silently.
 
-## Conscious Limitations
+## Production Readiness
 
-- JWT validation still lives in downstream services. The gateway is the
-  frontend entry point and CORS boundary, but it does not validate JWTs yet.
-- Access JWTs are stateless and locally validated. Blocking a user prevents
-  new login/refresh, but already issued access tokens remain valid until their
-  expiration time.
-- `exchange-service` coordinates remote book state changes synchronously and
-  does not use distributed transactions. Partial completion and failed cancel
-  compensation cases are surfaced as `REPAIR_REQUIRED` and can be retried via
-  the admin repair endpoint, but the flow is still operational repair rather
-  than an automatic distributed transaction.
-- Non-owners can load a single book only when it is both `PUBLIC` and
-  `AVAILABLE`; private, reserved, and exchanged books are intentionally
-  hidden as `404`.
-- DLQ redrive and outbox retry are operational endpoints, not autonomous
-  self-healing flows.
-- `notification-service` currently implements only the `IN_APP` channel.
-  Email, push, SMS, and websocket/SSE providers are intentionally left as
-  future channel-handler implementations.
+Second Shelf is designed and documented for deployment in an
+attestation-ready environment. The repository does not claim formal
+attestation or certification; final readiness depends on the concrete
+deployment environment, network controls, operational procedures, and evidence
+collected by the organization.
+
+Implemented in application code:
+
+- personal data minimization through domain ownership and database-per-service;
+- JWT access tokens, refresh token rotation, refresh reuse detection, logout,
+  and logout-all;
+- password hashing with bcrypt and a shared password policy for registration
+  and internal user creation;
+- owner-based, participant-based, and `ROLE_ADMIN` authorization;
+- `X-Internal-Token` protection for `/internal/**` service APIs;
+- in-memory rate limiting for login, registration, and refresh endpoints;
+- correlation id handling across HTTP services and RabbitMQ events;
+- structured security audit logging with sensitive value masking;
+- outbox, broker confirms, retry/backoff, terminal failure state, DLQ, manual
+  outbox retry, DLQ redrive, and exchange repair flow;
+- non-root Java service containers;
+- production-profile validation for required secrets and unsafe demo values.
+
+Required in deployment infrastructure:
+
+- TLS termination for external traffic and protected transport for internal
+  service, database, and RabbitMQ communication;
+- gateway or reverse proxy exposure with only `api-gateway` public in
+  production-like environments;
+- firewall rules and network segmentation for domain services, PostgreSQL,
+  RabbitMQ, `/internal/**`, Swagger, and Actuator;
+- centralized logs with retention, restricted access, and alerting for auth
+  failures, DLQ growth, terminal outbox failures, and repair operations;
+- backup storage, restore tests, and retention enforcement for all service
+  databases and RabbitMQ operational state;
+- isolated database and RabbitMQ credentials, preferably separate per service
+  and environment;
+- vulnerability scanning in CI or a security pipeline through
+  `./mvnw -Psecurity-scan verify`.
+
+Required as organizational process:
+
+- formal confirmation of the `3-ИН` classification for the target environment;
+- approval of the personal data register, retention periods, and access rules;
+- incident response ownership, playbooks, contact paths, and evidence storage;
+- review of production roles, admin accounts, backup access, and secret
+  rotation procedures;
+- collection of deployment evidence for attestation readiness.
+
+Not applicable to the current project:
+
+- electronic signature / PKI user document flows, because Second Shelf does
+  not sign legally significant documents;
+- application-level Wi-Fi or removable-media controls, because the backend
+  does not manage those infrastructure components.
+
+See [docs/security/11-attestation-readiness-checklist.md](docs/security/11-attestation-readiness-checklist.md)
+for the detailed checklist.
+
+## Future Improvements
+
+- Move JWT validation into the gateway or introduce token introspection if the
+  deployment needs centralized revocation decisions before access JWT expiry.
+- Add automatic saga-style recovery for exchange repair cases if operational
+  repair becomes too slow for production support expectations.
+- Automate DLQ redrive decisions only after the project has stronger payload
+  classification, replay safety rules, and operator approval workflow.
+- Add delivery providers beyond the current `IN_APP` notification channel,
+  such as email, push, or websocket/SSE realtime delivery.
