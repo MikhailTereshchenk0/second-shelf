@@ -165,7 +165,7 @@ class ExchangeControllerTest {
                         .contentType(APPLICATION_JSON)
                         .content(requestBody))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.message").value("Request validation failed"))
                 .andExpect(jsonPath("$.details.requestedBookId").value("must not be null"))
                 .andExpect(jsonPath("$.details.offeredBookId").value("must not be null"));
@@ -190,7 +190,7 @@ class ExchangeControllerTest {
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_EXCHANGE_BOOK_SELECTION"))
+                .andExpect(jsonPath("$.errorCode").value("INVALID_EXCHANGE_BOOK_SELECTION"))
                 .andExpect(jsonPath("$.message").value("Requested book and offered book must be different."))
                 .andExpect(jsonPath("$.timestamp").exists());
     }
@@ -214,7 +214,7 @@ class ExchangeControllerTest {
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("REQUESTED_BOOK_NOT_FOUND"))
+                .andExpect(jsonPath("$.errorCode").value("REQUESTED_BOOK_NOT_FOUND"))
                 .andExpect(jsonPath("$.message").value("Requested book not found."))
                 .andExpect(jsonPath("$.timestamp").exists());
     }
@@ -336,7 +336,7 @@ class ExchangeControllerTest {
         mockMvc.perform(post("/api/v1/exchanges/10/accept")
                         .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(55L, "owner", List.of("ROLE_USER")))))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("ONLY_OWNER_CAN_ACCEPT"))
+                .andExpect(jsonPath("$.errorCode").value("ONLY_OWNER_CAN_ACCEPT"))
                 .andExpect(jsonPath("$.message").value("Only owner can accept."))
                 .andExpect(jsonPath("$.timestamp").exists());
     }
@@ -494,7 +494,7 @@ class ExchangeControllerTest {
         mockMvc.perform(post("/api/v1/exchanges/12/complete")
                         .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(55L, "owner", List.of("ROLE_USER")))))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("INVALID_EXCHANGE_STATUS_TRANSITION"))
+                .andExpect(jsonPath("$.errorCode").value("INVALID_EXCHANGE_STATUS_TRANSITION"))
                 .andExpect(jsonPath("$.message").value("Only ACCEPTED or COMPLETION_PENDING request can be completed."))
                 .andExpect(jsonPath("$.timestamp").exists());
     }

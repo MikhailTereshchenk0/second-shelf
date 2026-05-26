@@ -599,6 +599,76 @@ Secrets are required through environment variables and the file does not provide
 demo defaults. Direct service access is intentionally unavailable in this mode;
 clients should call the gateway only.
 
+## API Conventions
+
+### Frontend Entry Point And CORS
+
+- Browser/frontend clients should call `api-gateway` (`http://localhost:8088`
+  locally) instead of calling domain services directly.
+- CORS is centralized in `api-gateway` and configured with
+  `FRONTEND_ALLOWED_ORIGINS`.
+- Downstream services do not define broad CORS rules. In production-like
+  compose they are reachable only through Docker internal networking and the
+  gateway route table.
+- The gateway preserves `Authorization` and `X-Correlation-Id`; if
+  `X-Correlation-Id` is missing, the gateway creates one.
+
+### Pagination
+
+List endpoints use Spring `Page` responses directly; successful responses are
+not wrapped in an additional envelope. Current defaults:
+
+- default `size`: `20`;
+- maximum `size`: `100`;
+- unsupported sort fields return `400 BAD_REQUEST`.
+
+Sort whitelists are enforced on list endpoints where sorting is currently
+practical:
+
+| Endpoint family | Allowed sort fields |
+| --- | --- |
+| `/api/v1/books/public`, `/api/v1/books/my` | `createdAt`, `updatedAt`, `title`, `author` |
+| `/api/v1/exchanges/my/outgoing`, `/api/v1/exchanges/my/incoming` | `createdAt`, `updatedAt`, `status` |
+| `/api/v1/notifications` | `createdAt`, `status`, `type` |
+
+### Error Responses
+
+Services return a stable frontend-facing error shape:
+
+```json
+{
+  "timestamp": "2026-05-26T12:00:00",
+  "path": "/api/v1/books/public",
+  "status": 400,
+  "errorCode": "BAD_REQUEST",
+  "message": "Unsupported sort field: ownerId",
+  "details": {}
+}
+```
+
+Validation errors include both field-keyed details and a frontend-friendly
+`fieldErrors` list:
+
+```json
+{
+  "errorCode": "VALIDATION_ERROR",
+  "message": "Request validation failed",
+  "details": {
+    "password": "Password must contain at least one uppercase letter.",
+    "fieldErrors": [
+      {
+        "field": "password",
+        "reason": "Password must contain at least one uppercase letter.",
+        "code": "ValidPasswordPolicy"
+      }
+    ]
+  }
+}
+```
+
+Generic server failures intentionally return a neutral
+`INTERNAL_SERVER_ERROR` message instead of exposing internal exception details.
+
 ## Environment Variables
 
 `.env.example` contains values for local development. Some variables such as
@@ -714,8 +784,9 @@ is intended as a defense-in-depth layer.
 
 ## Swagger URLs
 
-Each service exposes Swagger UI at `/swagger-ui.html` and OpenAPI JSON at
-`/v3/api-docs`.
+In local development each service exposes Swagger UI at `/swagger-ui.html` and
+OpenAPI JSON at `/v3/api-docs` when public docs are enabled for the active
+profile.
 
 | Service | Swagger UI | OpenAPI JSON |
 | --- | --- | --- |
@@ -794,8 +865,8 @@ Additional async observability URLs:
 
 ## Conscious Limitations
 
-- Clients still call each backend service directly. There is no API gateway or
-  unified backend entry point.
+- JWT validation still lives in downstream services. The gateway is the
+  frontend entry point and CORS boundary, but it does not validate JWTs yet.
 - Access JWTs are stateless and locally validated. Blocking a user prevents
   new login/refresh, but already issued access tokens remain valid until their
   expiration time.

@@ -18,6 +18,7 @@ import com.secondshelf.bookservice.service.BookService;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -34,6 +35,7 @@ import java.time.LocalDateTime;
 import java.util.Date;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -91,6 +93,35 @@ class BookControllerTest {
                 .andExpect(jsonPath("$.content[0].visibility").value("PUBLIC"));
 
         verify(bookService).getPublicCatalog(any(Pageable.class));
+    }
+
+    @Test
+    void publicCatalogShouldClampPageSizeAndAllowWhitelistedSort() throws Exception {
+        when(bookService.getPublicCatalog(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/api/v1/books/public")
+                        .param("size", "250")
+                        .param("sort", "title,asc"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(bookService).getPublicCatalog(pageableCaptor.capture());
+
+        Pageable pageable = pageableCaptor.getValue();
+        assertThat(pageable.getPageSize()).isEqualTo(100);
+        assertThat(pageable.getSort().getOrderFor("title")).isNotNull();
+    }
+
+    @Test
+    void publicCatalogShouldRejectUnsupportedSort() throws Exception {
+        mockMvc.perform(get("/api/v1/books/public")
+                        .param("sort", "ownerId,asc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.path").value("/api/v1/books/public"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("Unsupported sort field: ownerId"));
     }
 
     @Test
@@ -161,7 +192,9 @@ class BookControllerTest {
         mockMvc.perform(get("/api/v1/books/99")
                         .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(7L, "bob", List.of("ROLE_USER")))))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("BOOK_NOT_FOUND"))
+                .andExpect(jsonPath("$.errorCode").value("BOOK_NOT_FOUND"))
+                .andExpect(jsonPath("$.path").value("/api/v1/books/99"))
+                .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.message").value("Book with id = 99 not found."));
     }
 
@@ -180,7 +213,7 @@ class BookControllerTest {
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"))
+                .andExpect(jsonPath("$.errorCode").value("ACCESS_DENIED"))
                 .andExpect(jsonPath("$.message").value("Access denied for book id = 15"));
     }
 

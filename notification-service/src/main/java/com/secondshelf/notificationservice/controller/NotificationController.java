@@ -4,6 +4,7 @@ import com.secondshelf.notificationservice.dto.NotificationResponse;
 import com.secondshelf.notificationservice.dto.UnreadCountResponse;
 import com.secondshelf.notificationservice.security.UserPrincipal;
 import com.secondshelf.notificationservice.service.NotificationService;
+import com.secondshelf.notificationservice.web.PageableSanitizer;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -23,6 +24,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Set;
+
 import static org.springframework.data.domain.Sort.Direction.DESC;
 
 @RestController
@@ -31,6 +34,8 @@ import static org.springframework.data.domain.Sort.Direction.DESC;
 @Tag(name = "Notification API", description = "Notification endpoints for authenticated users")
 @SecurityRequirement(name = "bearerAuth")
 public class NotificationController {
+
+    private static final Set<String> NOTIFICATION_SORT_FIELDS = Set.of("createdAt", "status", "type");
 
     private final NotificationService notificationService;
 
@@ -46,7 +51,7 @@ public class NotificationController {
     public Page<NotificationResponse> getMyNotifications(@AuthenticationPrincipal UserPrincipal principal,
                                                          @ParameterObject
                                                          @PageableDefault(size = 20, sort = "createdAt", direction = DESC) Pageable pageable) {
-        return notificationService.getMyNotifications(principal, pageable);
+        return notificationService.getMyNotifications(principal, PageableSanitizer.sanitize(pageable, NOTIFICATION_SORT_FIELDS));
     }
 
     @Operation(
