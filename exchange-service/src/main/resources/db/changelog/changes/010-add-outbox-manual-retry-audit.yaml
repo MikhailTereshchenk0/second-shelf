@@ -1,0 +1,17 @@
+databaseChangeLog:
+  - changeSet:
+      id: 010-add-outbox-manual-retry-audit
+      author: Codex
+      changes:
+        - addColumn:
+            tableName: outbox_events
+            columns:
+              - column:
+                  name: manual_retry_count
+                  type: INT
+                  defaultValueNumeric: 0
+                  constraints:
+                    nullable: false
+              - column:
+                  name: manual_retried_at
+                  type: TIMESTAMP

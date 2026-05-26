@@ -31,4 +31,8 @@ public class ExchangeEventPayload {
     ExchangeStatus status;
     LocalDateTime ownerCompletionConfirmedAt;
     LocalDateTime requesterCompletionConfirmedAt;
+    String repairReason;
+    LocalDateTime repairRequiredAt;
+    Integer repairAttempts;
+    LocalDateTime lastRepairAttemptAt;
 }

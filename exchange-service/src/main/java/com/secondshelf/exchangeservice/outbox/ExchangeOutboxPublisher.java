@@ -23,9 +23,13 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionOperations;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -35,6 +39,11 @@ import java.util.concurrent.TimeoutException;
 @ConditionalOnProperty(name = "exchange.outbox.publisher.enabled", havingValue = "true", matchIfMissing = true)
 public class ExchangeOutboxPublisher {
 
+    private static final EnumSet<OutboxEventStatus> RETRYABLE_STATUSES = EnumSet.of(
+            OutboxEventStatus.PENDING,
+            OutboxEventStatus.RETRYABLE_FAILED
+    );
+
     private final OutboxEventRepository outboxEventRepository;
     private final RabbitTemplate rabbitTemplate;
     private final ExchangeRabbitProperties exchangeRabbitProperties;
@@ -43,6 +52,9 @@ public class ExchangeOutboxPublisher {
     private final ExchangeAsyncMetrics exchangeAsyncMetrics;
     private final long confirmTimeoutMs;
     private final int maxAttempts;
+    private final long retryInitialDelayMs;
+    private final double retryMultiplier;
+    private final long retryMaxDelayMs;
 
     public ExchangeOutboxPublisher(OutboxEventRepository outboxEventRepository,
                                    RabbitTemplate rabbitTemplate,
@@ -53,7 +65,13 @@ public class ExchangeOutboxPublisher {
                                    @Value("${exchange.outbox.publisher.confirm-timeout-ms:10000}")
                                    long confirmTimeoutMs,
                                    @Value("${exchange.outbox.publisher.max-attempts:5}")
-                                   int maxAttempts) {
+                                   int maxAttempts,
+                                   @Value("${exchange.outbox.publisher.retry-initial-delay-ms:1000}")
+                                   long retryInitialDelayMs,
+                                   @Value("${exchange.outbox.publisher.retry-multiplier:2.0}")
+                                   double retryMultiplier,
+                                   @Value("${exchange.outbox.publisher.retry-max-delay-ms:60000}")
+                                   long retryMaxDelayMs) {
         this.outboxEventRepository = outboxEventRepository;
         this.rabbitTemplate = rabbitTemplate;
         this.exchangeRabbitProperties = exchangeRabbitProperties;
@@ -62,12 +80,18 @@ public class ExchangeOutboxPublisher {
         this.exchangeAsyncMetrics = exchangeAsyncMetrics;
         this.confirmTimeoutMs = confirmTimeoutMs;
         this.maxAttempts = Math.max(1, maxAttempts);
+        this.retryInitialDelayMs = Math.max(1L, retryInitialDelayMs);
+        this.retryMultiplier = retryMultiplier > 0.0 ? retryMultiplier : 1.0;
+        this.retryMaxDelayMs = Math.max(this.retryInitialDelayMs, retryMaxDelayMs);
     }
 
     @Scheduled(fixedDelayString = "${exchange.outbox.publisher.fixed-delay-ms:5000}")
     public void publishPendingEvents() {
         List<OutboxEvent> pendingEvents = outboxEventRepository
-                .findTop100ByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING);
+                .findTop100ByStatusInAndNextAttemptAtLessThanEqualOrderByNextAttemptAtAscCreatedAtAsc(
+                        RETRYABLE_STATUSES,
+                        LocalDateTime.now()
+                );
 
         pendingEvents.forEach(this::publishPendingEventSafely);
     }
@@ -181,7 +205,7 @@ public class ExchangeOutboxPublisher {
 
     private void markPublished(Long outboxEventId) {
         withTransaction(() -> outboxEventRepository.findById(outboxEventId).ifPresent(event -> {
-            if (event.getStatus() == OutboxEventStatus.PENDING) {
+            if (RETRYABLE_STATUSES.contains(event.getStatus())) {
                 event.markPublished();
                 outboxEventRepository.save(event);
             }
@@ -191,6 +215,7 @@ public class ExchangeOutboxPublisher {
     private void handlePublishFailure(OutboxEvent event, RuntimeException ex) {
         exchangeAsyncMetrics.incrementPublishError(event.getEventType());
         String failureMessage = resolveFailureMessage(ex);
+        String failureCode = resolveFailureCode(ex);
         log.warn(
                 "Failed to publish exchange outbox event id={}, eventId={}, eventType={}, nextAttempt={}, maxAttempts={}",
                 event.getId(),
@@ -202,7 +227,7 @@ public class ExchangeOutboxPublisher {
         );
 
         try {
-            OutboxEvent updatedEvent = updateFailureState(event.getId(), failureMessage);
+            OutboxEvent updatedEvent = updateFailureState(event.getId(), failureMessage, failureCode);
             if (updatedEvent == null) {
                 return;
             }
@@ -223,12 +248,13 @@ public class ExchangeOutboxPublisher {
 
             exchangeAsyncMetrics.incrementRetryScheduled(event.getEventType());
             log.warn(
-                    "Scheduled retry for exchange outbox event id={}, eventId={}, eventType={}, attempts={}, maxAttempts={}",
+                    "Scheduled retry for exchange outbox event id={}, eventId={}, eventType={}, attempts={}, maxAttempts={}, nextAttemptAt={}",
                     updatedEvent.getId(),
                     updatedEvent.getEventId(),
                     updatedEvent.getEventType(),
                     updatedEvent.getAttemptsCount(),
-                    maxAttempts
+                    maxAttempts,
+                    updatedEvent.getNextAttemptAt()
             );
         } catch (RuntimeException updateException) {
             log.error(
@@ -239,18 +265,31 @@ public class ExchangeOutboxPublisher {
         }
     }
 
-    private OutboxEvent updateFailureState(Long outboxEventId, String failureMessage) {
+    private OutboxEvent updateFailureState(Long outboxEventId, String failureMessage, String failureCode) {
         AtomicReference<OutboxEvent> updatedEvent = new AtomicReference<>();
         withTransaction(() -> outboxEventRepository.findById(outboxEventId).ifPresent(storedEvent -> {
-            if (storedEvent.getStatus() != OutboxEventStatus.PENDING) {
+            if (!RETRYABLE_STATUSES.contains(storedEvent.getStatus())) {
                 return;
             }
 
-            storedEvent.recordPublishFailure(failureMessage, maxAttempts);
+            storedEvent.recordPublishFailure(
+                    failureMessage,
+                    failureCode,
+                    maxAttempts,
+                    LocalDateTime.now().plus(computeRetryDelay(storedEvent.getAttemptsCount() + 1))
+            );
             outboxEventRepository.save(storedEvent);
             updatedEvent.set(storedEvent);
         }));
         return updatedEvent.get();
+    }
+
+    private Duration computeRetryDelay(int nextAttemptsCount) {
+        double exponentialDelay = retryInitialDelayMs * Math.pow(retryMultiplier, Math.max(0, nextAttemptsCount - 1));
+        long cappedDelayMs = Math.min(retryMaxDelayMs, Math.max(1L, Math.round(exponentialDelay)));
+        long minJitterMs = Math.max(1L, cappedDelayMs / 2L);
+        long jitteredDelayMs = ThreadLocalRandom.current().nextLong(minJitterMs, cappedDelayMs + 1L);
+        return Duration.ofMillis(jitteredDelayMs);
     }
 
     private String resolveFailureMessage(RuntimeException ex) {
@@ -269,6 +308,19 @@ public class ExchangeOutboxPublisher {
             return typeName;
         }
         return typeName + ": " + message;
+    }
+
+    private String resolveFailureCode(RuntimeException ex) {
+        Throwable current = ex;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+
+        String typeName = current.getClass().getSimpleName();
+        if (typeName == null || typeName.isBlank()) {
+            return current.getClass().getName();
+        }
+        return typeName;
     }
 
     private void withTransaction(Runnable action) {

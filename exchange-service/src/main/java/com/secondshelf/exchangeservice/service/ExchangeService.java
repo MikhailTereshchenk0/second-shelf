@@ -28,9 +28,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.util.StringUtils;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -38,11 +43,16 @@ import java.util.List;
 public class ExchangeService {
 
     private static final AuditLogger AUDIT_LOGGER = AuditLogger.forClass(ExchangeService.class);
+    private static final String PARTIAL_COMPLETION_REPAIR_REASON_PREFIX = "PARTIAL_COMPLETION_FAILED";
+    private static final String CANCEL_RELEASE_REPAIR_REASON_PREFIX = "CANCEL_RELEASE_COMPENSATION_FAILED";
+    private static final int IDEMPOTENCY_KEY_MIN_LENGTH = 16;
+    private static final int IDEMPOTENCY_KEY_MAX_LENGTH = 128;
 
     private static final List<ExchangeStatus> ACTIVE_EXCHANGE_STATUSES = List.of(
             ExchangeStatus.PENDING,
             ExchangeStatus.ACCEPTED,
-            ExchangeStatus.COMPLETION_PENDING
+            ExchangeStatus.COMPLETION_PENDING,
+            ExchangeStatus.REPAIR_REQUIRED
     );
 
     private static final List<ExchangeStatus> COMPLETION_ELIGIBLE_STATUSES = List.of(
@@ -55,9 +65,36 @@ public class ExchangeService {
     private final ExchangeOutboxService exchangeOutboxService;
 
     public ExchangeResponse create(CreateExchangeRequest req, UserPrincipal principal) {
+        return create(req, principal, null);
+    }
+
+    public ExchangeResponse create(CreateExchangeRequest req, UserPrincipal principal, String idempotencyKey) {
         Long requesterId = requireUserId(principal);
+        String idempotencyKeyHash = normalizeAndHashIdempotencyKey(idempotencyKey);
 
         try {
+            if (idempotencyKeyHash != null) {
+                var existing = exchangeRepository.findByRequesterIdAndIdempotencyKeyHash(requesterId, idempotencyKeyHash);
+                if (existing.isPresent()) {
+                    ExchangeRequest existingRequest = existing.get();
+                    if (!hasSameCreatePayload(existingRequest, req)) {
+                        throw new ExchangeConflictException(
+                                "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_REQUEST",
+                                "Idempotency-Key was already used with a different exchange request payload."
+                        );
+                    }
+                    ExchangeResponse response = toResponse(existingRequest);
+                    AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_CREATE", AuditOutcome.SUCCESS)
+                            .actorUserId(requesterId)
+                            .targetUserId(response.getOwnerId())
+                            .entityId(response.getId())
+                            .reason("IDEMPOTENT_REPLAY")
+                            .attribute("status", response.getStatus())
+                            .build());
+                    return response;
+                }
+            }
+
             if (req.getRequestedBookId().equals(req.getOfferedBookId())) {
                 throw new ExchangeBadRequestException(
                         "INVALID_EXCHANGE_BOOK_SELECTION",
@@ -96,6 +133,7 @@ public class ExchangeService {
                             .requesterUsernameSnapshot(principal != null ? principal.username() : null)
                             .status(ExchangeStatus.PENDING)
                             .message(req.getMessage())
+                            .idempotencyKeyHash(idempotencyKeyHash)
                             .build()
             );
 
@@ -145,6 +183,7 @@ public class ExchangeService {
             if (!me.equals(req.getOwnerId())) {
                 throw new ExchangeForbiddenException("ONLY_OWNER_CAN_ACCEPT", "Only owner can accept.");
             }
+            rejectParticipantActionWhenRepairRequired(req);
             if (req.getStatus() != ExchangeStatus.PENDING) {
                 throw new ExchangeConflictException(
                         "INVALID_EXCHANGE_STATUS_TRANSITION",
@@ -162,7 +201,7 @@ public class ExchangeService {
             if (exchangeRepository.existsAnotherByStatusesAndBookIds(
                     req.getId(),
                     bookIds,
-                    List.of(ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING)
+                    List.of(ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING, ExchangeStatus.REPAIR_REQUIRED)
             )) {
                 throw new ExchangeConflictException(
                         "BOOK_ALREADY_IN_ACCEPTED_EXCHANGE",
@@ -211,6 +250,7 @@ public class ExchangeService {
             if (!me.equals(req.getOwnerId())) {
                 throw new ExchangeForbiddenException("ONLY_OWNER_CAN_DECLINE", "Only owner can decline.");
             }
+            rejectParticipantActionWhenRepairRequired(req);
             if (req.getStatus() != ExchangeStatus.PENDING) {
                 throw new ExchangeConflictException(
                         "INVALID_EXCHANGE_STATUS_TRANSITION",
@@ -255,6 +295,7 @@ public class ExchangeService {
             if (!me.equals(req.getRequesterId())) {
                 throw new ExchangeForbiddenException("ONLY_REQUESTER_CAN_CANCEL", "Only requester can cancel.");
             }
+            rejectParticipantActionWhenRepairRequired(req);
             if ((req.getStatus() != ExchangeStatus.PENDING && req.getStatus() != ExchangeStatus.ACCEPTED)
                     || req.hasAnyCompletionConfirmation()) {
                 throw new ExchangeConflictException(
@@ -264,7 +305,12 @@ public class ExchangeService {
             }
 
             if (req.getStatus() == ExchangeStatus.ACCEPTED) {
-                releaseBothBooks(req);
+                try {
+                    releaseBothBooks(req);
+                } catch (ExchangeRepairRequiredException ex) {
+                    populateRequesterUsernameSnapshotIfMissing(req, principal);
+                    return markRepairRequired(req, principal, me, ex.getMessage(), "EXCHANGE_CANCEL");
+                }
             }
 
             populateRequesterUsernameSnapshotIfMissing(req, principal);
@@ -307,6 +353,7 @@ public class ExchangeService {
                         "Only exchange participants can confirm completion."
                 );
             }
+            rejectParticipantActionWhenRepairRequired(req);
             if (!COMPLETION_ELIGIBLE_STATUSES.contains(req.getStatus())) {
                 throw new ExchangeConflictException(
                         "INVALID_EXCHANGE_STATUS_TRANSITION",
@@ -347,9 +394,13 @@ public class ExchangeService {
                 return response;
             }
 
-            completeBothBooks(req);
             populateParticipantUsernameSnapshotIfMissing(req, principal, me);
             req.confirmCompletion(me, confirmedAt);
+            try {
+                completeBothBooks(req);
+            } catch (ExchangeRepairRequiredException ex) {
+                return markRepairRequired(req, principal, me, ex.getMessage(), "EXCHANGE_COMPLETE");
+            }
             req.setStatus(ExchangeStatus.COMPLETED);
             ExchangeRequest saved = exchangeRepository.save(req);
             exchangeOutboxService.recordExchangeEvent(
@@ -373,6 +424,89 @@ public class ExchangeService {
                     .reason(ex.getMessage())
                     .errorCode(resolveErrorCode(ex))
                     .build());
+            throw ex;
+        }
+    }
+
+    @Transactional(noRollbackFor = ExchangeConflictException.class)
+    public ExchangeResponse repair(Long exchangeId, UserPrincipal principal) {
+        Long adminUserId = requireUserId(principal);
+
+        try {
+            ExchangeRequest req = findExchangeRequestForUpdate(exchangeId);
+
+            if (isCompletedRepair(req) || isCancelledRepair(req)) {
+                AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_ADMIN_REPAIR", AuditOutcome.SUCCESS)
+                        .actorUserId(adminUserId)
+                        .entityId(exchangeId)
+                        .reason("ALREADY_REPAIRED")
+                        .attribute("status", req.getStatus())
+                        .build());
+                return toResponse(req);
+            }
+
+            if (req.getStatus() != ExchangeStatus.REPAIR_REQUIRED) {
+                throw new ExchangeConflictException(
+                        "EXCHANGE_NOT_REPAIR_REQUIRED",
+                        "Only REPAIR_REQUIRED exchange can be repaired."
+                );
+            }
+
+            incrementRepairAttempt(req);
+            RepairTarget target = resolveRepairTarget(req);
+
+            try {
+                if (target == RepairTarget.COMPLETED) {
+                    repairCompletion(req);
+                } else {
+                    repairCancellation(req);
+                }
+            } catch (RuntimeException ex) {
+                req.setStatus(ExchangeStatus.REPAIR_REQUIRED);
+                req.setRepairReason("REPAIR_ATTEMPT_FAILED: " + ex.getMessage());
+                ExchangeRequest saved = exchangeRepository.save(req);
+                AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_ADMIN_REPAIR", AuditOutcome.FAILURE)
+                        .actorUserId(adminUserId)
+                        .entityId(exchangeId)
+                        .reason(saved.getRepairReason())
+                        .attribute("repairAttempts", saved.getRepairAttempts())
+                        .build());
+                throw new ExchangeConflictException("EXCHANGE_REPAIR_FAILED", saved.getRepairReason());
+            }
+
+            ExchangeRequest saved = exchangeRepository.save(req);
+            ExchangeEventContext eventContext = eventContext(principal);
+            if (target == RepairTarget.COMPLETED) {
+                exchangeOutboxService.recordExchangeEventIfAbsent(
+                        ExchangeEventType.EXCHANGE_REQUEST_COMPLETED,
+                        saved,
+                        eventContext
+                );
+            } else {
+                exchangeOutboxService.recordExchangeEventIfAbsent(
+                        ExchangeEventType.EXCHANGE_REQUEST_CANCELLED,
+                        saved,
+                        eventContext
+                );
+            }
+
+            AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_ADMIN_REPAIR", AuditOutcome.SUCCESS)
+                    .actorUserId(adminUserId)
+                    .entityId(exchangeId)
+                    .attribute("status", saved.getStatus())
+                    .attribute("repairAttempts", saved.getRepairAttempts())
+                    .build());
+            return toResponse(saved);
+        } catch (RuntimeException ex) {
+            if (!(ex instanceof ExchangeConflictException
+                    && "EXCHANGE_REPAIR_FAILED".equals(((ExchangeConflictException) ex).getCode()))) {
+                AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_ADMIN_REPAIR", AuditOutcome.FAILURE)
+                        .actorUserId(adminUserId)
+                        .entityId(exchangeId)
+                        .reason(ex.getMessage())
+                        .errorCode(resolveErrorCode(ex))
+                        .build());
+            }
             throw ex;
         }
     }
@@ -427,16 +561,34 @@ public class ExchangeService {
     }
 
     private void completeBothBooks(ExchangeRequest req) {
-        markBookExchanged(
-                req.getRequestedBookId(),
-                "REQUESTED_BOOK_COMPLETION_CONFLICT",
-                "Requested book cannot be completed."
-        );
-        markBookExchanged(
-                req.getOfferedBookId(),
-                "OFFERED_BOOK_COMPLETION_CONFLICT",
-                "Offered book cannot be completed."
-        );
+        List<Long> exchangedBookIds = new ArrayList<>();
+
+        try {
+            markBookExchanged(
+                    req.getRequestedBookId(),
+                    "REQUESTED_BOOK_COMPLETION_CONFLICT",
+                    "Requested book cannot be completed."
+            );
+            exchangedBookIds.add(req.getRequestedBookId());
+
+            markBookExchanged(
+                    req.getOfferedBookId(),
+                    "OFFERED_BOOK_COMPLETION_CONFLICT",
+                    "Offered book cannot be completed."
+            );
+            exchangedBookIds.add(req.getOfferedBookId());
+        } catch (RuntimeException ex) {
+            if (!exchangedBookIds.isEmpty()) {
+                throw new ExchangeRepairRequiredException(
+                        "PARTIAL_COMPLETION_FAILED: books marked EXCHANGED="
+                                + exchangedBookIds
+                                + ", failed to complete remaining book transition: "
+                                + ex.getMessage(),
+                        ex
+                );
+            }
+            throw ex;
+        }
     }
 
     private void releaseBothBooks(ExchangeRequest req) {
@@ -457,12 +609,24 @@ public class ExchangeService {
             );
             releasedBookIds.add(req.getOfferedBookId());
         } catch (RuntimeException e) {
-            rollbackReleasedBooks(releasedBookIds);
+            List<Long> rollbackFailedBookIds = rollbackReleasedBooks(releasedBookIds);
+            if (!rollbackFailedBookIds.isEmpty()) {
+                throw new ExchangeRepairRequiredException(
+                        "CANCEL_RELEASE_COMPENSATION_FAILED: released books="
+                                + releasedBookIds
+                                + ", rollback failed for books="
+                                + rollbackFailedBookIds
+                                + ", original release failure: "
+                                + e.getMessage(),
+                        e
+                );
+            }
             throw e;
         }
     }
 
-    private void rollbackReleasedBooks(List<Long> releasedBookIds) {
+    private List<Long> rollbackReleasedBooks(List<Long> releasedBookIds) {
+        List<Long> rollbackFailedBookIds = new ArrayList<>();
         for (int i = releasedBookIds.size() - 1; i >= 0; i--) {
             Long bookId = releasedBookIds.get(i);
             try {
@@ -476,10 +640,12 @@ public class ExchangeService {
                         .entityId(bookId)
                         .reason("ROLLBACK_RELEASED_BOOK_FAILED")
                         .build());
+                rollbackFailedBookIds.add(bookId);
                 // best-effort compensation:
                 // exchange request is not canceled, but manual investigation may be required
             }
         }
+        return rollbackFailedBookIds;
     }
 
     private void validateRequestedBook(BookDto requestedBook, Long requesterId) {
@@ -520,6 +686,32 @@ public class ExchangeService {
             );
         }
         return principal.userId();
+    }
+
+    private String normalizeAndHashIdempotencyKey(String idempotencyKey) {
+        if (idempotencyKey == null) {
+            return null;
+        }
+        String normalized = idempotencyKey.trim();
+        if (normalized.length() < IDEMPOTENCY_KEY_MIN_LENGTH
+                || normalized.length() > IDEMPOTENCY_KEY_MAX_LENGTH) {
+            throw new ExchangeBadRequestException(
+                    "INVALID_IDEMPOTENCY_KEY",
+                    "Idempotency-Key length must be between 16 and 128 characters."
+            );
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(normalized.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 digest is not available.", ex);
+        }
+    }
+
+    private boolean hasSameCreatePayload(ExchangeRequest existingRequest, CreateExchangeRequest req) {
+        return Objects.equals(existingRequest.getRequestedBookId(), req.getRequestedBookId())
+                && Objects.equals(existingRequest.getOfferedBookId(), req.getOfferedBookId())
+                && Objects.equals(existingRequest.getMessage(), req.getMessage());
     }
 
     private ExchangeEventContext eventContext(UserPrincipal principal) {
@@ -588,6 +780,86 @@ public class ExchangeService {
         }
     }
 
+    private void repairCompletion(ExchangeRequest req) {
+        ensureBookExchangedAndPrivate(req.getRequestedBookId());
+        ensureBookExchangedAndPrivate(req.getOfferedBookId());
+        req.setStatus(ExchangeStatus.COMPLETED);
+    }
+
+    private void repairCancellation(ExchangeRequest req) {
+        ensureBookAvailable(req.getRequestedBookId());
+        ensureBookAvailable(req.getOfferedBookId());
+        req.setStatus(ExchangeStatus.CANCELLED);
+    }
+
+    private void ensureBookExchangedAndPrivate(Long bookId) {
+        BookDto book = getRepairBook(bookId);
+        if ("EXCHANGED".equals(book.getStatus())) {
+            if (!"PRIVATE".equals(book.getVisibility())) {
+                throw new ExchangeConflictException(
+                        "EXCHANGE_REPAIR_UNSUPPORTED_BOOK_STATE",
+                        "Book is EXCHANGED but not PRIVATE."
+                );
+            }
+            return;
+        }
+        markBookExchanged(
+                bookId,
+                "EXCHANGE_REPAIR_BOOK_COMPLETION_CONFLICT",
+                "Book cannot be marked EXCHANGED during repair."
+        );
+    }
+
+    private void ensureBookAvailable(Long bookId) {
+        BookDto book = getRepairBook(bookId);
+        if ("AVAILABLE".equals(book.getStatus())) {
+            return;
+        }
+        makeBookAvailable(
+                bookId,
+                "EXCHANGE_REPAIR_BOOK_RELEASE_CONFLICT",
+                "Book cannot be made AVAILABLE during repair."
+        );
+    }
+
+    private BookDto getRepairBook(Long bookId) {
+        try {
+            return bookServiceClient.getBook(bookId);
+        } catch (HttpClientErrorException ex) {
+            throw mapBookOperationException(ex, "EXCHANGE_REPAIR_BOOK_READ_CONFLICT", "Book cannot be read during repair.");
+        }
+    }
+
+    private RepairTarget resolveRepairTarget(ExchangeRequest req) {
+        String reason = req.getRepairReason();
+        if (reason != null && reason.startsWith(CANCEL_RELEASE_REPAIR_REASON_PREFIX)) {
+            return RepairTarget.CANCELLED;
+        }
+        if (reason != null && reason.startsWith(PARTIAL_COMPLETION_REPAIR_REASON_PREFIX)) {
+            return RepairTarget.COMPLETED;
+        }
+        if (req.isCompletionConfirmedByBothParticipants()) {
+            return RepairTarget.COMPLETED;
+        }
+        throw new ExchangeConflictException(
+                "EXCHANGE_REPAIR_TARGET_UNKNOWN",
+                "Exchange repair target cannot be determined from current exchange data."
+        );
+    }
+
+    private void incrementRepairAttempt(ExchangeRequest req) {
+        req.setRepairAttempts((req.getRepairAttempts() == null ? 0 : req.getRepairAttempts()) + 1);
+        req.setLastRepairAttemptAt(LocalDateTime.now());
+    }
+
+    private boolean isCompletedRepair(ExchangeRequest req) {
+        return req.getStatus() == ExchangeStatus.COMPLETED && req.getRepairRequiredAt() != null;
+    }
+
+    private boolean isCancelledRepair(ExchangeRequest req) {
+        return req.getStatus() == ExchangeStatus.CANCELLED && req.getRepairRequiredAt() != null;
+    }
+
     private RuntimeException mapBookOperationException(HttpClientErrorException ex,
                                                        String conflictCode,
                                                        String conflictMessage) {
@@ -598,6 +870,49 @@ public class ExchangeService {
             return new ExchangeConflictException(conflictCode, conflictMessage);
         }
         return ex;
+    }
+
+    private void rejectParticipantActionWhenRepairRequired(ExchangeRequest req) {
+        if (req.getStatus() == ExchangeStatus.REPAIR_REQUIRED) {
+            throw new ExchangeConflictException(
+                    "EXCHANGE_REPAIR_REQUIRED",
+                    "Exchange requires manual repair before participant actions can continue."
+            );
+        }
+    }
+
+    private ExchangeResponse markRepairRequired(ExchangeRequest req,
+                                                UserPrincipal principal,
+                                                Long actorUserId,
+                                                String repairReason,
+                                                String failedAction) {
+        LocalDateTime now = LocalDateTime.now();
+        req.setStatus(ExchangeStatus.REPAIR_REQUIRED);
+        req.setRepairReason(repairReason);
+        if (req.getRepairRequiredAt() == null) {
+            req.setRepairRequiredAt(now);
+        }
+        if (req.getRepairAttempts() == null) {
+            req.setRepairAttempts(0);
+        }
+
+        ExchangeRequest saved = exchangeRepository.save(req);
+        exchangeOutboxService.recordExchangeEvent(
+                ExchangeEventType.EXCHANGE_REQUEST_REPAIR_REQUIRED,
+                saved,
+                eventContext(principal, actorUserId)
+        );
+
+        AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_REPAIR_REQUIRED", AuditOutcome.FAILURE)
+                .actorUserId(actorUserId)
+                .targetUserId(actorUserId != null ? resolveCounterpartyUserId(saved, actorUserId) : null)
+                .entityId(saved.getId())
+                .reason(repairReason)
+                .attribute("failedAction", failedAction)
+                .attribute("status", saved.getStatus())
+                .build());
+
+        return toResponse(saved);
     }
 
     private void populateOwnerUsernameSnapshotIfMissing(ExchangeRequest exchangeRequest, UserPrincipal principal) {
@@ -645,6 +960,10 @@ public class ExchangeService {
                 .message(r.getMessage())
                 .ownerCompletionConfirmedAt(r.getOwnerCompletionConfirmedAt())
                 .requesterCompletionConfirmedAt(r.getRequesterCompletionConfirmedAt())
+                .repairReason(r.getRepairReason())
+                .repairRequiredAt(r.getRepairRequiredAt())
+                .repairAttempts(r.getRepairAttempts())
+                .lastRepairAttemptAt(r.getLastRepairAttemptAt())
                 .createdAt(r.getCreatedAt())
                 .updatedAt(r.getUpdatedAt())
                 .build();
@@ -662,5 +981,17 @@ public class ExchangeService {
             return exchangeException.getCode();
         }
         return null;
+    }
+
+    private static class ExchangeRepairRequiredException extends RuntimeException {
+
+        ExchangeRepairRequiredException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    private enum RepairTarget {
+        COMPLETED,
+        CANCELLED
     }
 }

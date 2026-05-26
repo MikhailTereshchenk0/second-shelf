@@ -62,11 +62,30 @@ public class ExchangeRequest {
     @Column(name = "message", length = 1000)
     private String message;
 
+    @Column(name = "idempotency_key", length = 128)
+    private String idempotencyKey;
+
+    @Column(name = "idempotency_key_hash", length = 64)
+    private String idempotencyKeyHash;
+
     @Column(name = "owner_completion_confirmed_at")
     private LocalDateTime ownerCompletionConfirmedAt;
 
     @Column(name = "requester_completion_confirmed_at")
     private LocalDateTime requesterCompletionConfirmedAt;
+
+    @Column(name = "repair_reason", columnDefinition = "TEXT")
+    private String repairReason;
+
+    @Column(name = "repair_required_at")
+    private LocalDateTime repairRequiredAt;
+
+    @Builder.Default
+    @Column(name = "repair_attempts", nullable = false)
+    private Integer repairAttempts = 0;
+
+    @Column(name = "last_repair_attempt_at")
+    private LocalDateTime lastRepairAttemptAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -79,6 +98,7 @@ public class ExchangeRequest {
         var now = LocalDateTime.now();
         if (createdAt == null) createdAt = now;
         if (updatedAt == null) updatedAt = now;
+        if (repairAttempts == null) repairAttempts = 0;
     }
 
     @PreUpdate

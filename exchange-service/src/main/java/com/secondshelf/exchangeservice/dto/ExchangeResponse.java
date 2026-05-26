@@ -24,6 +24,10 @@ public class ExchangeResponse {
     private String message;
     private LocalDateTime ownerCompletionConfirmedAt;
     private LocalDateTime requesterCompletionConfirmedAt;
+    private String repairReason;
+    private LocalDateTime repairRequiredAt;
+    private Integer repairAttempts;
+    private LocalDateTime lastRepairAttemptAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

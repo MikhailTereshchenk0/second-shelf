@@ -1,11 +1,11 @@
 # Second Shelf
 
 Second Shelf is a multi-module Spring Boot backend for book exchange between users.
-The final practical-part architecture consists of five services with isolated
-PostgreSQL databases, direct REST calls without an API gateway, JWT-based
-authentication for public APIs, `X-Internal-Token` protection for private
-service APIs, RabbitMQ delivery for exchange domain events, and persisted
-in-app notifications built through the outbox pattern.
+The architecture uses an API Gateway as the recommended production and frontend
+entry point, backed by five domain services with isolated PostgreSQL databases,
+JWT-based authentication for public APIs, `X-Internal-Token` protection for
+private service APIs, RabbitMQ delivery for exchange domain events, and
+persisted in-app notifications built through the outbox pattern.
 
 ## Documentation
 
@@ -15,6 +15,7 @@ in-app notifications built through the outbox pattern.
 
 | Service | Port | Responsibility | Database |
 | --- | --- | --- | --- |
+| `api-gateway` | `8088` | Production/frontend entry point, CORS, routing, correlation id creation | - |
 | `auth-service` | `8080` | Registration, login, access token issuing, refresh rotation, logout, logout-all | `auth_db` |
 | `user-service` | `8081` | User profiles, roles, block/unblock, internal claims/auth APIs | `users_db` |
 | `book-service` | `8082` | Public catalog, owner book management, internal book state transitions | `books_db` |
@@ -23,6 +24,7 @@ in-app notifications built through the outbox pattern.
 
 Maven root modules:
 
+- `api-gateway`
 - `auth-service`
 - `user-service`
 - `book-service`
@@ -33,7 +35,16 @@ Maven root modules:
 
 ### Synchronous REST Boundaries
 
-- There is no API gateway in this repository. Clients call each service directly.
+- `api-gateway` is the recommended production and frontend entry point. It
+  centralizes public route forwarding, CORS configuration through
+  `FRONTEND_ALLOWED_ORIGINS`, and `X-Correlation-Id` creation when the client
+  does not provide one.
+- Direct access to individual service ports is kept only as a local development
+  convenience for debugging, Swagger access when enabled, and isolated service
+  testing.
+- JWT validation intentionally remains in downstream services for now; the
+  gateway preserves the `Authorization` header and does not perform token
+  validation.
 - `auth-service` owns registration, login, refresh rotation, logout, logout-all,
   and `GET /api/auth/me`.
 - `user-service` owns user profiles, administrator role management, and
@@ -182,6 +193,7 @@ Maven root modules:
 flowchart LR
     Client["Client / Frontend"]
 
+    Gateway["api-gateway"]
     Auth["auth-service"]
     User["user-service"]
     Book["book-service"]
@@ -202,11 +214,12 @@ flowchart LR
         Queue -. dead-letter .-> DLQ
     end
 
-    Client -->|"login / register / refresh"| Auth
-    Client -->|"Bearer JWT"| User
-    Client -->|"Bearer JWT"| Book
-    Client -->|"Bearer JWT"| Exchange
-    Client -->|"Bearer JWT"| Notification
+    Client -->|"HTTP API / Bearer JWT"| Gateway
+    Gateway -->|"/api/auth/**"| Auth
+    Gateway -->|"/api/v1/users/** / admin users"| User
+    Gateway -->|"/api/v1/books/**"| Book
+    Gateway -->|"/api/v1/exchanges/** / admin outbox"| Exchange
+    Gateway -->|"/api/v1/notifications/**"| Notification
 
     Auth -->|"X-Internal-Token"| User
     Exchange -->|"X-Internal-Token"| Book
@@ -330,6 +343,8 @@ Current exchange workflow in `exchange-service`:
    - `requestedBookId`
    - `offeredBookId`
    - optional `message`
+   - optional `Idempotency-Key` header, scoped per requester, 16-128
+     characters.
 2. `exchange-service` synchronously loads both books from `book-service`.
 3. Validation on create:
    - requested and offered books must be different;
@@ -337,8 +352,14 @@ Current exchange workflow in `exchange-service`:
    - requested book must be `PUBLIC` and `AVAILABLE`;
    - offered book must belong to requester;
    - offered book must be `PUBLIC` and `AVAILABLE`;
+   - if a requester retries with the same `Idempotency-Key` and identical
+     payload, the original exchange response is returned without creating a
+     second exchange or outbox event;
+   - if the same requester reuses an `Idempotency-Key` with a different
+     requested book, offered book, or message, the request fails with
+     `IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_REQUEST`;
    - duplicate active request with the same book pair is rejected when status
-     is `PENDING`, `ACCEPTED`, or `COMPLETION_PENDING`.
+     is `PENDING`, `ACCEPTED`, `COMPLETION_PENDING`, or `REPAIR_REQUIRED`.
 4. The exchange request is stored with status `PENDING`, together with the
    current title/author snapshots of both books and the requester's username
    snapshot. The owner's username snapshot is filled later from owner-side
@@ -374,6 +395,57 @@ Current exchange workflow in `exchange-service`:
      final moment;
    - event `exchange.request.completed` is recorded after the second
      confirmation.
+11. On partial distributed failures:
+   - if one completion book transition succeeds and the next one fails, the
+     exchange moves to `REPAIR_REQUIRED` with `repairReason`,
+     `repairRequiredAt`, `repairAttempts`, and `lastRepairAttemptAt`;
+   - if accepted-cancel release compensation fails and can leave books
+     inconsistent, the exchange also moves to `REPAIR_REQUIRED`;
+   - normal participant actions (`accept`, `decline`, `cancel`, `complete`)
+     are blocked while repair is required.
+
+### Operational Exchange Repair
+
+Admins can repair inconsistent exchanges through:
+
+- `POST /api/v1/admin/exchanges/{id}/repair`
+- requires a bearer JWT with `ROLE_ADMIN`
+
+Repair locks the `exchange_requests` row pessimistically, increments
+`repairAttempts`, updates `lastRepairAttemptAt`, inspects the saved
+`repairReason` and exchange confirmation data, and then retries only the
+book-service transitions needed to reach the intended terminal state:
+
+- completion repair: both requested and offered books are made
+  `EXCHANGED` + `PRIVATE`; the exchange becomes `COMPLETED`; an
+  `exchange.request.completed` outbox event is recorded if it was not already
+  recorded for the final transition;
+- cancellation repair: both requested and offered books are made
+  `AVAILABLE`; the exchange becomes `CANCELLED`; an
+  `exchange.request.cancelled` outbox event is recorded if absent.
+
+If a repair attempt fails, the exchange remains `REPAIR_REQUIRED`,
+`repairAttempts` still increases, `lastRepairAttemptAt` is refreshed, and
+`repairReason` is updated with the latest failure. Calling repair again after a
+successful repair is idempotent and returns the already repaired exchange
+without repeating book transitions.
+
+### Operational Outbox Recovery
+
+Admins can inspect and manually re-queue terminally failed exchange outbox
+events through:
+
+- `GET /api/v1/admin/outbox/terminal-failed`
+- `POST /api/v1/admin/outbox/{eventId}/retry`
+- both require a bearer JWT with `ROLE_ADMIN`
+
+The terminal-failed listing returns summary fields and `lastError`; it does not
+return serialized outbox payload bodies by default. Manual retry is allowed only
+for `TERMINAL_FAILED` events. It clears `failedAt`, increments
+`manualRetryCount`, updates `manualRetriedAt`, sets `nextAttemptAt` to the
+current time, and moves the event back to `PENDING` so the scheduled outbox
+publisher can publish it asynchronously. The admin endpoint does not publish to
+RabbitMQ synchronously.
 
 ## Statuses
 
@@ -399,6 +471,7 @@ Related visibility states in `book-service`:
 | `PENDING` | Request created and waiting for owner decision. |
 | `ACCEPTED` | Request accepted and both books reserved. |
 | `COMPLETION_PENDING` | One participant confirmed completion; waiting for the second participant. |
+| `REPAIR_REQUIRED` | A distributed book transition or compensation partially failed; participant actions are blocked until admin repair completes. |
 | `DECLINED` | Request explicitly declined or auto-declined because another request was accepted. |
 | `CANCELLED` | Request cancelled by requester before any completion confirmation. |
 | `COMPLETED` | Both participants confirmed completion and both books were marked exchanged. |
@@ -409,6 +482,19 @@ Related visibility states in `book-service`:
 | --- | --- |
 | `UNREAD` | Notification has not been read yet. |
 | `READ` | Notification has been marked as read. |
+
+### Notification Delivery Channels
+
+`notification-service` routes exchange-derived notification commands through a
+channel abstraction before persistence or delivery. The only implemented
+channel today is `IN_APP`, which persists rows in `notification_db`.
+Notifications also track delivery lifecycle with `CREATED`, `DELIVERED`, and
+`FAILED`; persisted in-app notifications are marked `DELIVERED`.
+
+The abstraction is intentionally ready for future channels such as `EMAIL`,
+`PUSH`, and browser realtime delivery through `WEBSOCKET` or `SSE`. Those
+providers are not implemented yet, so the public notification API remains the
+same and continues to expose stored in-app notifications.
 
 ## Notifications
 
@@ -430,14 +516,18 @@ Current exchange-derived notifications:
 - `POST /api/v1/notifications/{id}/read`
 - `POST /api/v1/notifications/read-all`
 
-## Local Startup With Docker Compose
+## Docker Compose Startup
 
 ### Prerequisites
 
 - Docker
 - Docker Compose
 
-### Start
+### Local Compose
+
+`docker-compose.yaml` is intentionally convenient for local development. It
+publishes the gateway, individual service ports, PostgreSQL, RabbitMQ AMQP, and
+RabbitMQ Management UI so the stack can be inspected and debugged directly.
 
 1. Create a local env file:
 
@@ -466,6 +556,8 @@ Current exchange-derived notifications:
 
 Notes for the current Compose setup:
 
+- Frontend clients should use `http://localhost:8088` through `api-gateway`.
+  The individual service ports remain published for local/dev convenience.
 - Service-to-service base URLs, `DB_HOST`, and `RABBITMQ_HOST` are overridden
   with container DNS names in `docker-compose.yaml`.
 - Service containers expose Docker health checks based on
@@ -477,6 +569,7 @@ Notes for the current Compose setup:
 
 | Component | Default URL |
 | --- | --- |
+| `api-gateway` | `http://localhost:8088` |
 | `auth-service` | `http://localhost:8080` |
 | `user-service` | `http://localhost:8081` |
 | `book-service` | `http://localhost:8082` |
@@ -486,12 +579,35 @@ Notes for the current Compose setup:
 | RabbitMQ AMQP | `localhost:5672` |
 | RabbitMQ Management UI | `http://localhost:15672` |
 
+### Production-Like Compose
+
+`docker-compose.prod.example.yaml` models external exposure behind the gateway.
+It publishes only `api-gateway`; PostgreSQL, RabbitMQ, and domain services are
+reachable only on the internal Docker network. The gateway is attached to both
+`public` and `internal` networks, while services, PostgreSQL, and RabbitMQ stay
+on `internal`.
+
+Use real environment values from a secure source. `.env.prod.example` contains
+placeholders only and should not be used as-is:
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.example.yaml up --build
+```
+
+Production-like compose uses `SPRING_PROFILES_ACTIVE=prod` for every service.
+Secrets are required through environment variables and the file does not provide
+demo defaults. Direct service access is intentionally unavailable in this mode;
+clients should call the gateway only.
+
 ## Environment Variables
 
 `.env.example` contains values for local development. Some variables such as
 `DB_HOST`, `RABBITMQ_HOST`, `USER_SERVICE_BASE_URL`, and `BOOK_SERVICE_BASE_URL`
 are mainly useful when services are started directly from the IDE or terminal
 outside Compose.
+
+`.env.prod.example` is a placeholder template for the production-like compose
+file. Keep real production-like values outside source control.
 
 The current Compose stack forwards the shared RabbitMQ topology variables.
 Dead-letter and outbox reliability settings are supported by the service
@@ -656,12 +772,25 @@ Additional async observability URLs:
      pending outbox events;
    - start RabbitMQ again, wait longer than the publisher delay, and verify
      that pending events are published and notifications appear.
+   - for an event that exhausted max attempts and became `TERMINAL_FAILED`,
+     use `GET /api/v1/admin/outbox/terminal-failed` to inspect the summary and
+     `POST /api/v1/admin/outbox/{eventId}/retry` to re-queue it after fixing
+     the broker or routing issue.
 5. DLQ behavior:
    - publish a valid JSON message with missing required fields or an
      unsupported `eventType` to `exchange.events` with routing key
      `exchange.request.created` through RabbitMQ Management UI;
    - verify that the message is routed to
      `notification.exchange-events.dlq`.
+   - after fixing the underlying issue, call
+     `POST /api/v1/admin/notifications/dlq/redrive?limit=10` with a
+     `ROLE_ADMIN` bearer token to move messages from the notification DLQ back
+     to the original exchange/routing key.
+   - the redrive endpoint preserves useful message headers such as `eventId`,
+     `eventType`, and `X-Correlation-Id`; if the original routing key is not
+     available and the configured fallback routing key is a wildcard pattern,
+     the message is returned to the DLQ and reported in the response instead
+     of being dropped silently.
 
 ## Conscious Limitations
 
@@ -671,13 +800,15 @@ Additional async observability URLs:
   new login/refresh, but already issued access tokens remain valid until their
   expiration time.
 - `exchange-service` coordinates remote book state changes synchronously and
-  does not use distributed transactions. Reserve/release flows have only
-  best-effort compensation, and completion has no cross-service rollback, so
-  some failure cases may still require manual repair.
+  does not use distributed transactions. Partial completion and failed cancel
+  compensation cases are surfaced as `REPAIR_REQUIRED` and can be retried via
+  the admin repair endpoint, but the flow is still operational repair rather
+  than an automatic distributed transaction.
 - Non-owners can load a single book only when it is both `PUBLIC` and
   `AVAILABLE`; private, reserved, and exchanged books are intentionally
   hidden as `404`.
-- Dead-letter handling exists, but there is no automatic DLQ redrive flow or
-  retry backoff policy.
-- `notification-service` creates persisted in-app notifications only. There is
-  no email, push, SMS, or websocket delivery layer.
+- DLQ redrive and outbox retry are operational endpoints, not autonomous
+  self-healing flows.
+- `notification-service` currently implements only the `IN_APP` channel.
+  Email, push, SMS, and websocket/SSE providers are intentionally left as
+  future channel-handler implementations.

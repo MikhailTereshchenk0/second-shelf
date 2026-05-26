@@ -15,6 +15,7 @@ import java.util.UUID;
         },
         indexes = {
                 @Index(name = "idx_outbox_status_created", columnList = "status, created_at"),
+                @Index(name = "idx_outbox_status_next_attempt_created", columnList = "status, next_attempt_at, created_at"),
                 @Index(name = "idx_outbox_aggregate", columnList = "aggregate_type, aggregate_id")
         })
 @Getter
@@ -53,12 +54,27 @@ public class OutboxEvent {
     @Column(name = "failed_at")
     private LocalDateTime failedAt;
 
+    @Column(name = "manual_retried_at")
+    private LocalDateTime manualRetriedAt;
+
+    @Column(name = "first_failed_at")
+    private LocalDateTime firstFailedAt;
+
+    @Column(name = "next_attempt_at", nullable = false)
+    private LocalDateTime nextAttemptAt;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private OutboxEventStatus status;
 
+    @Column(name = "error_code", length = 100)
+    private String errorCode;
+
     @Column(name = "attempts_count", nullable = false)
     private int attemptsCount;
+
+    @Column(name = "manual_retry_count", nullable = false)
+    private int manualRetryCount;
 
     @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "last_error", columnDefinition = "TEXT")
@@ -75,20 +91,31 @@ public class OutboxEvent {
         if (status == null) {
             status = OutboxEventStatus.PENDING;
         }
+        if (nextAttemptAt == null) {
+            nextAttemptAt = createdAt;
+        }
     }
 
     public void incrementAttempts() {
         attemptsCount++;
     }
 
-    public void recordPublishFailure(String errorMessage, int maxAttempts) {
+    public void recordPublishFailure(String errorMessage, String failureCode, int maxAttempts, LocalDateTime nextAttemptAt) {
         incrementAttempts();
         lastError = normalizeErrorMessage(errorMessage);
+        errorCode = normalizeErrorCode(failureCode);
+        if (firstFailedAt == null) {
+            firstFailedAt = LocalDateTime.now();
+        }
 
         if (attemptsCount >= Math.max(1, maxAttempts)) {
             status = OutboxEventStatus.TERMINAL_FAILED;
             failedAt = LocalDateTime.now();
+            return;
         }
+
+        status = OutboxEventStatus.RETRYABLE_FAILED;
+        this.nextAttemptAt = nextAttemptAt != null ? nextAttemptAt : LocalDateTime.now();
     }
 
     public void markPublished() {
@@ -96,6 +123,19 @@ public class OutboxEvent {
         publishedAt = LocalDateTime.now();
         failedAt = null;
         lastError = null;
+        errorCode = null;
+    }
+
+    public void requeueTerminalFailure(LocalDateTime retryAt) {
+        if (status != OutboxEventStatus.TERMINAL_FAILED) {
+            throw new IllegalStateException("Only terminally failed outbox events can be manually retried.");
+        }
+
+        status = OutboxEventStatus.PENDING;
+        failedAt = null;
+        nextAttemptAt = retryAt != null ? retryAt : LocalDateTime.now();
+        manualRetriedAt = nextAttemptAt;
+        manualRetryCount++;
     }
 
     private String normalizeErrorMessage(String errorMessage) {
@@ -103,5 +143,12 @@ public class OutboxEvent {
             return null;
         }
         return errorMessage.length() <= 2000 ? errorMessage : errorMessage.substring(0, 2000);
+    }
+
+    private String normalizeErrorCode(String failureCode) {
+        if (failureCode == null || failureCode.isBlank()) {
+            return null;
+        }
+        return failureCode.length() <= 100 ? failureCode : failureCode.substring(0, 100);
     }
 }

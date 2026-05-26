@@ -1,0 +1,20 @@
+databaseChangeLog:
+  - changeSet:
+      id: 002-add-notification-delivery-fields
+      author: Codex
+      changes:
+        - addColumn:
+            tableName: notifications
+            columns:
+              - column:
+                  name: channel
+                  type: VARCHAR(30)
+                  defaultValue: IN_APP
+                  constraints:
+                    nullable: false
+              - column:
+                  name: delivery_status
+                  type: VARCHAR(30)
+                  defaultValue: DELIVERED
+                  constraints:
+                    nullable: false

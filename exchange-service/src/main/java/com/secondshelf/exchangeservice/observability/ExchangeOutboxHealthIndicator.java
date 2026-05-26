@@ -10,10 +10,16 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.EnumSet;
 import java.util.Optional;
 
 @Component("exchangeOutbox")
 public class ExchangeOutboxHealthIndicator implements HealthIndicator {
+
+    private static final EnumSet<OutboxEventStatus> PENDING_STATUSES = EnumSet.of(
+            OutboxEventStatus.PENDING,
+            OutboxEventStatus.RETRYABLE_FAILED
+    );
 
     private final OutboxEventRepository outboxEventRepository;
     private final boolean publisherEnabled;
@@ -26,10 +32,12 @@ public class ExchangeOutboxHealthIndicator implements HealthIndicator {
 
     @Override
     public Health health() {
-        long pendingEvents = outboxEventRepository.countByStatus(OutboxEventStatus.PENDING);
+        LocalDateTime now = LocalDateTime.now();
+        long pendingEvents = outboxEventRepository.countByStatusIn(PENDING_STATUSES);
+        long duePendingEvents = outboxEventRepository.countByStatusInAndNextAttemptAtLessThanEqual(PENDING_STATUSES, now);
         long terminalFailedEvents = outboxEventRepository.countByStatus(OutboxEventStatus.TERMINAL_FAILED);
-        Optional<OutboxEvent> oldestPendingEvent = outboxEventRepository
-                .findTopByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING);
+        Optional<OutboxEvent> oldestDuePendingEvent = outboxEventRepository
+                .findTopByStatusInAndNextAttemptAtLessThanEqualOrderByNextAttemptAtAscCreatedAtAsc(PENDING_STATUSES, now);
 
         Health.Builder builder;
         if (!publisherEnabled) {
@@ -42,20 +50,23 @@ public class ExchangeOutboxHealthIndicator implements HealthIndicator {
 
         builder.withDetail("publisherEnabled", publisherEnabled)
                 .withDetail("pendingEvents", pendingEvents)
+                .withDetail("duePendingEvents", duePendingEvents)
                 .withDetail("terminalFailedEvents", terminalFailedEvents);
 
-        oldestPendingEvent.ifPresent(event -> addOldestPendingDetails(builder, event));
+        oldestDuePendingEvent.ifPresent(event -> addOldestDuePendingDetails(builder, event, now));
         return builder.build();
     }
 
-    private void addOldestPendingDetails(Health.Builder builder, OutboxEvent event) {
-        builder.withDetail("oldestPendingEventId", String.valueOf(event.getEventId()));
+    private void addOldestDuePendingDetails(Health.Builder builder, OutboxEvent event, LocalDateTime now) {
+        builder.withDetail("oldestDuePendingEventId", String.valueOf(event.getEventId()))
+                .withDetail("oldestDuePendingEventStatus", event.getStatus());
         if (event.getCreatedAt() == null) {
             return;
         }
 
-        long ageSeconds = Math.max(0L, Duration.between(event.getCreatedAt(), LocalDateTime.now()).getSeconds());
-        builder.withDetail("oldestPendingEventCreatedAt", event.getCreatedAt())
-                .withDetail("oldestPendingEventAgeSeconds", ageSeconds);
+        long ageSeconds = Math.max(0L, Duration.between(event.getCreatedAt(), now).getSeconds());
+        builder.withDetail("oldestDuePendingEventCreatedAt", event.getCreatedAt())
+                .withDetail("oldestDuePendingEventNextAttemptAt", event.getNextAttemptAt())
+                .withDetail("oldestDuePendingEventAgeSeconds", ageSeconds);
     }
 }

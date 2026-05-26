@@ -43,8 +43,9 @@ public class ExchangeController {
     })
     @PostMapping
     public ExchangeResponse create(@Valid @RequestBody CreateExchangeRequest req,
+                                   @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
                                    @AuthenticationPrincipal UserPrincipal principal) {
-        return exchangeService.create(req, principal);
+        return exchangeService.create(req, principal, idempotencyKey);
     }
 
     @Operation(

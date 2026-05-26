@@ -15,6 +15,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -28,10 +29,16 @@ class ExchangeOutboxHealthIndicatorTest {
         OutboxEvent oldestPendingEvent = OutboxEvent.builder()
                 .eventId(UUID.randomUUID())
                 .createdAt(LocalDateTime.now().minusSeconds(30))
+                .nextAttemptAt(LocalDateTime.now().minusSeconds(5))
+                .status(OutboxEventStatus.PENDING)
                 .build();
-        when(outboxEventRepository.countByStatus(OutboxEventStatus.PENDING)).thenReturn(2L);
+        when(outboxEventRepository.countByStatusIn(any())).thenReturn(2L);
+        when(outboxEventRepository.countByStatusInAndNextAttemptAtLessThanEqual(any(), any(LocalDateTime.class))).thenReturn(1L);
         when(outboxEventRepository.countByStatus(OutboxEventStatus.TERMINAL_FAILED)).thenReturn(0L);
-        when(outboxEventRepository.findTopByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING))
+        when(outboxEventRepository.findTopByStatusInAndNextAttemptAtLessThanEqualOrderByNextAttemptAtAscCreatedAtAsc(
+                any(),
+                any(LocalDateTime.class)
+        ))
                 .thenReturn(Optional.of(oldestPendingEvent));
 
         Health health = new ExchangeOutboxHealthIndicator(outboxEventRepository, true).health();
@@ -39,15 +46,20 @@ class ExchangeOutboxHealthIndicatorTest {
         assertEquals(Status.UP, health.getStatus());
         assertEquals(true, health.getDetails().get("publisherEnabled"));
         assertEquals(2L, health.getDetails().get("pendingEvents"));
+        assertEquals(1L, health.getDetails().get("duePendingEvents"));
         assertEquals(0L, health.getDetails().get("terminalFailedEvents"));
-        assertEquals(oldestPendingEvent.getEventId().toString(), health.getDetails().get("oldestPendingEventId"));
+        assertEquals(oldestPendingEvent.getEventId().toString(), health.getDetails().get("oldestDuePendingEventId"));
     }
 
     @Test
     void healthShouldBeDownWhenTerminalFailuresExist() {
-        when(outboxEventRepository.countByStatus(OutboxEventStatus.PENDING)).thenReturn(1L);
+        when(outboxEventRepository.countByStatusIn(any())).thenReturn(1L);
+        when(outboxEventRepository.countByStatusInAndNextAttemptAtLessThanEqual(any(), any(LocalDateTime.class))).thenReturn(0L);
         when(outboxEventRepository.countByStatus(OutboxEventStatus.TERMINAL_FAILED)).thenReturn(1L);
-        when(outboxEventRepository.findTopByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING))
+        when(outboxEventRepository.findTopByStatusInAndNextAttemptAtLessThanEqualOrderByNextAttemptAtAscCreatedAtAsc(
+                any(),
+                any(LocalDateTime.class)
+        ))
                 .thenReturn(Optional.empty());
 
         Health health = new ExchangeOutboxHealthIndicator(outboxEventRepository, true).health();
@@ -58,9 +70,13 @@ class ExchangeOutboxHealthIndicatorTest {
 
     @Test
     void healthShouldBeUnknownWhenPublisherIsDisabled() {
-        when(outboxEventRepository.countByStatus(OutboxEventStatus.PENDING)).thenReturn(0L);
+        when(outboxEventRepository.countByStatusIn(any())).thenReturn(0L);
+        when(outboxEventRepository.countByStatusInAndNextAttemptAtLessThanEqual(any(), any(LocalDateTime.class))).thenReturn(0L);
         when(outboxEventRepository.countByStatus(OutboxEventStatus.TERMINAL_FAILED)).thenReturn(0L);
-        when(outboxEventRepository.findTopByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING))
+        when(outboxEventRepository.findTopByStatusInAndNextAttemptAtLessThanEqualOrderByNextAttemptAtAscCreatedAtAsc(
+                any(),
+                any(LocalDateTime.class)
+        ))
                 .thenReturn(Optional.empty());
 
         Health health = new ExchangeOutboxHealthIndicator(outboxEventRepository, false).health();

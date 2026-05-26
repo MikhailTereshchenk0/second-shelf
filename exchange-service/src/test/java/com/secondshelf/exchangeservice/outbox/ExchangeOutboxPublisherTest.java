@@ -11,6 +11,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.AmqpException;
@@ -30,6 +31,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -71,11 +73,14 @@ class ExchangeOutboxPublisherTest {
                 objectMapper,
                 new ExchangeAsyncMetrics(meterRegistry),
                 100L,
-                3
+                3,
+                5_000L,
+                2.0,
+                60_000L
         );
 
         lenient().when(exchangeRabbitProperties.getExchange()).thenReturn("exchange.events");
-        lenient().when(transactionOperations.execute(any(TransactionCallback.class))).thenAnswer(invocation -> {
+        lenient().when(transactionOperations.execute(ArgumentMatchers.<TransactionCallback<Object>>any())).thenAnswer(invocation -> {
             TransactionCallback<Object> callback = invocation.getArgument(0);
             return callback.doInTransaction(null);
         });
@@ -85,7 +90,10 @@ class ExchangeOutboxPublisherTest {
     void publishPendingEventsShouldMarkEventPublishedOnlyAfterBrokerAck() {
         OutboxEvent event = buildEvent("exchange.request.created", "corr-publish-123");
 
-        when(outboxEventRepository.findTop100ByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING))
+        when(outboxEventRepository.findTop100ByStatusInAndNextAttemptAtLessThanEqualOrderByNextAttemptAtAscCreatedAtAsc(
+                any(),
+                any(LocalDateTime.class)
+        ))
                 .thenReturn(List.of(event));
         when(outboxEventRepository.findById(1L)).thenReturn(Optional.of(event));
 
@@ -124,8 +132,12 @@ class ExchangeOutboxPublisherTest {
     @Test
     void publishPendingEventsShouldIncrementAttemptsWhenBrokerNacksPublish() {
         OutboxEvent event = buildEvent("exchange.request.accepted", "corr-nack-123");
+        LocalDateTime beforePublish = LocalDateTime.now();
 
-        when(outboxEventRepository.findTop100ByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING))
+        when(outboxEventRepository.findTop100ByStatusInAndNextAttemptAtLessThanEqualOrderByNextAttemptAtAscCreatedAtAsc(
+                any(),
+                any(LocalDateTime.class)
+        ))
                 .thenReturn(List.of(event));
         when(outboxEventRepository.findById(1L)).thenReturn(Optional.of(event));
 
@@ -139,8 +151,12 @@ class ExchangeOutboxPublisherTest {
 
         verify(outboxEventRepository).save(event);
         assertEquals(1, event.getAttemptsCount());
-        assertEquals(OutboxEventStatus.PENDING, event.getStatus());
+        assertEquals(OutboxEventStatus.RETRYABLE_FAILED, event.getStatus());
         assertNull(event.getPublishedAt());
+        assertNotNull(event.getFirstFailedAt());
+        assertNotNull(event.getNextAttemptAt());
+        assertTrue(event.getNextAttemptAt().isAfter(beforePublish));
+        assertEquals("IllegalStateException", event.getErrorCode());
         assertNotNull(event.getLastError());
         assertEquals(
                 1.0,
@@ -161,10 +177,15 @@ class ExchangeOutboxPublisherTest {
     @Test
     void publishPendingEventsShouldClearPreviousErrorWhenRetriedEventPublishesSuccessfully() {
         OutboxEvent event = buildEvent("exchange.request.completed", "corr-retry-success-123");
+        event.setStatus(OutboxEventStatus.RETRYABLE_FAILED);
         event.setAttemptsCount(2);
         event.setLastError("AmqpException: RabbitMQ is unavailable");
+        event.setErrorCode("AmqpException");
 
-        when(outboxEventRepository.findTop100ByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING))
+        when(outboxEventRepository.findTop100ByStatusInAndNextAttemptAtLessThanEqualOrderByNextAttemptAtAscCreatedAtAsc(
+                any(),
+                any(LocalDateTime.class)
+        ))
                 .thenReturn(List.of(event));
         when(outboxEventRepository.findById(1L)).thenReturn(Optional.of(event));
 
@@ -182,6 +203,7 @@ class ExchangeOutboxPublisherTest {
         assertNotNull(event.getPublishedAt());
         assertNull(event.getFailedAt());
         assertNull(event.getLastError());
+        assertNull(event.getErrorCode());
         assertEquals(
                 1.0,
                 meterRegistry.get("exchange.outbox.events.published")
@@ -195,7 +217,10 @@ class ExchangeOutboxPublisherTest {
     void publishPendingEventsShouldIncrementAttemptsWhenMessageIsReturnedAsUnroutable() {
         OutboxEvent event = buildEvent("exchange.request.declined", "corr-return-123");
 
-        when(outboxEventRepository.findTop100ByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING))
+        when(outboxEventRepository.findTop100ByStatusInAndNextAttemptAtLessThanEqualOrderByNextAttemptAtAscCreatedAtAsc(
+                any(),
+                any(LocalDateTime.class)
+        ))
                 .thenReturn(List.of(event));
         when(outboxEventRepository.findById(1L)).thenReturn(Optional.of(event));
 
@@ -217,7 +242,7 @@ class ExchangeOutboxPublisherTest {
 
         verify(outboxEventRepository).save(event);
         assertEquals(1, event.getAttemptsCount());
-        assertEquals(OutboxEventStatus.PENDING, event.getStatus());
+        assertEquals(OutboxEventStatus.RETRYABLE_FAILED, event.getStatus());
         assertNull(event.getPublishedAt());
         assertNotNull(event.getLastError());
         assertEquals(
@@ -233,7 +258,10 @@ class ExchangeOutboxPublisherTest {
     void publishPendingEventsShouldIncrementAttemptsWhenPublishFailsImmediately() {
         OutboxEvent event = buildEvent("exchange.request.accepted", "corr-fail-123");
 
-        when(outboxEventRepository.findTop100ByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING))
+        when(outboxEventRepository.findTop100ByStatusInAndNextAttemptAtLessThanEqualOrderByNextAttemptAtAscCreatedAtAsc(
+                any(),
+                any(LocalDateTime.class)
+        ))
                 .thenReturn(List.of(event));
         when(outboxEventRepository.findById(1L)).thenReturn(Optional.of(event));
         doThrow(new AmqpException("RabbitMQ is unavailable") {
@@ -243,7 +271,7 @@ class ExchangeOutboxPublisherTest {
 
         verify(outboxEventRepository).save(event);
         assertEquals(1, event.getAttemptsCount());
-        assertEquals(OutboxEventStatus.PENDING, event.getStatus());
+        assertEquals(OutboxEventStatus.RETRYABLE_FAILED, event.getStatus());
         assertNull(event.getPublishedAt());
         assertNotNull(event.getLastError());
         assertEquals(
@@ -265,9 +293,13 @@ class ExchangeOutboxPublisherTest {
                 .status(OutboxEventStatus.PENDING)
                 .attemptsCount(0)
                 .createdAt(LocalDateTime.now())
+                .nextAttemptAt(LocalDateTime.now())
                 .build();
 
-        when(outboxEventRepository.findTop100ByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING))
+        when(outboxEventRepository.findTop100ByStatusInAndNextAttemptAtLessThanEqualOrderByNextAttemptAtAscCreatedAtAsc(
+                any(),
+                any(LocalDateTime.class)
+        ))
                 .thenReturn(List.of(event));
         when(outboxEventRepository.findById(1L)).thenReturn(Optional.of(event));
 
@@ -276,7 +308,7 @@ class ExchangeOutboxPublisherTest {
         verifyNoInteractions(rabbitTemplate);
         verify(outboxEventRepository).save(event);
         assertEquals(1, event.getAttemptsCount());
-        assertEquals(OutboxEventStatus.PENDING, event.getStatus());
+        assertEquals(OutboxEventStatus.RETRYABLE_FAILED, event.getStatus());
         assertNotNull(event.getLastError());
         assertEquals(
                 1.0,
@@ -292,7 +324,10 @@ class ExchangeOutboxPublisherTest {
         OutboxEvent event = buildEvent("exchange.request.completed", "corr-terminal-123");
         event.setAttemptsCount(2);
 
-        when(outboxEventRepository.findTop100ByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING))
+        when(outboxEventRepository.findTop100ByStatusInAndNextAttemptAtLessThanEqualOrderByNextAttemptAtAscCreatedAtAsc(
+                any(),
+                any(LocalDateTime.class)
+        ))
                 .thenReturn(List.of(event));
         when(outboxEventRepository.findById(1L)).thenReturn(Optional.of(event));
         doThrow(new AmqpException("RabbitMQ is unavailable") {
@@ -314,6 +349,19 @@ class ExchangeOutboxPublisherTest {
         );
     }
 
+    @Test
+    void publishPendingEventsShouldIgnoreEventsThatAreNotDue() {
+        when(outboxEventRepository.findTop100ByStatusInAndNextAttemptAtLessThanEqualOrderByNextAttemptAtAscCreatedAtAsc(
+                any(),
+                any(LocalDateTime.class)
+        ))
+                .thenReturn(List.of());
+
+        exchangeOutboxPublisher.publishPendingEvents();
+
+        verifyNoInteractions(rabbitTemplate);
+    }
+
     private OutboxEvent buildEvent(String eventType, String correlationId) {
         UUID eventId = UUID.randomUUID();
         String payload = """
@@ -328,6 +376,7 @@ class ExchangeOutboxPublisherTest {
                 .status(OutboxEventStatus.PENDING)
                 .attemptsCount(0)
                 .createdAt(LocalDateTime.now())
+                .nextAttemptAt(LocalDateTime.now().minusSeconds(1))
                 .build();
     }
 }
