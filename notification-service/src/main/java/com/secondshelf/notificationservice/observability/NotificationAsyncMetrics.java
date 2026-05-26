@@ -47,6 +47,18 @@ public class NotificationAsyncMetrics {
         ).increment();
     }
 
+    public void incrementDlqRedriveAttempted() {
+        meterRegistry.counter("notification.dlq.redrive.attempted").increment();
+    }
+
+    public void incrementDlqRedriveSucceeded() {
+        meterRegistry.counter("notification.dlq.redrive.succeeded").increment();
+    }
+
+    public void incrementDlqRedriveFailed() {
+        meterRegistry.counter("notification.dlq.redrive.failed").increment();
+    }
+
     private String safe(String value) {
         return value == null || value.isBlank() ? "unknown" : value;
     }

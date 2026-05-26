@@ -726,6 +726,15 @@ Additional async observability URLs:
      `exchange.request.created` through RabbitMQ Management UI;
    - verify that the message is routed to
      `notification.exchange-events.dlq`.
+   - after fixing the underlying issue, call
+     `POST /api/v1/admin/notifications/dlq/redrive?limit=10` with a
+     `ROLE_ADMIN` bearer token to move messages from the notification DLQ back
+     to the original exchange/routing key.
+   - the redrive endpoint preserves useful message headers such as `eventId`,
+     `eventType`, and `X-Correlation-Id`; if the original routing key is not
+     available and the configured fallback routing key is a wildcard pattern,
+     the message is returned to the DLQ and reported in the response instead
+     of being dropped silently.
 
 ## Conscious Limitations
 
