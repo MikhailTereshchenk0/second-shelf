@@ -128,7 +128,7 @@ class AdminOutboxControllerTest {
         mockMvc.perform(post("/api/v1/admin/outbox/{eventId}/retry", eventId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(99L, "admin", List.of("ROLE_ADMIN")))))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("OUTBOX_EVENT_NOT_TERMINAL_FAILED"));
+                .andExpect(jsonPath("$.errorCode").value("OUTBOX_EVENT_NOT_TERMINAL_FAILED"));
     }
 
     private String bearer(String token) {

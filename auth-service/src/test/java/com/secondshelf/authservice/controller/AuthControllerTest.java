@@ -132,10 +132,15 @@ class AuthControllerTest {
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.path").value("/api/auth/register"))
+                .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.message").value("Request validation failed"))
                 .andExpect(jsonPath("$.details.password")
-                        .value("Password must contain at least one uppercase letter."));
+                        .value("Password must contain at least one uppercase letter."))
+                .andExpect(jsonPath("$.details.fieldErrors[0].field").value("password"))
+                .andExpect(jsonPath("$.details.fieldErrors[0].reason").value("Password must contain at least one uppercase letter."))
+                .andExpect(jsonPath("$.details.fieldErrors[0].code").exists());
     }
 
     @Test
@@ -151,7 +156,7 @@ class AuthControllerTest {
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.message").value("Request validation failed"))
                 .andExpect(jsonPath("$.details.password").value("Password must not contain username."));
     }
@@ -212,7 +217,7 @@ class AuthControllerTest {
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.message").value("Request validation failed"))
                 .andExpect(jsonPath("$.details.username").value("Username must not be blank."))
                 .andExpect(jsonPath("$.details.password").value("Password must not be blank."));
@@ -236,7 +241,7 @@ class AuthControllerTest {
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("401 UNAUTHORIZED"))
+                .andExpect(jsonPath("$.errorCode").value("401 UNAUTHORIZED"))
                 .andExpect(jsonPath("$.message").value("Invalid username or password."));
     }
 
@@ -276,7 +281,7 @@ class AuthControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().string("Retry-After", matchesPattern("\\d+")))
-                .andExpect(jsonPath("$.code").value("AUTH_RATE_LIMIT_EXCEEDED"));
+                .andExpect(jsonPath("$.errorCode").value("AUTH_RATE_LIMIT_EXCEEDED"));
 
         verify(authService, times(2)).login(any(LoginRequest.class));
     }
@@ -338,7 +343,7 @@ class AuthControllerTest {
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(alice)))
                 .andExpect(status().isTooManyRequests())
-                .andExpect(jsonPath("$.code").value("AUTH_RATE_LIMIT_EXCEEDED"));
+                .andExpect(jsonPath("$.errorCode").value("AUTH_RATE_LIMIT_EXCEEDED"));
 
         verify(authService, times(4)).login(any(LoginRequest.class));
     }
@@ -399,7 +404,7 @@ class AuthControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().string("Retry-After", matchesPattern("\\d+")))
-                .andExpect(jsonPath("$.code").value("AUTH_RATE_LIMIT_EXCEEDED"));
+                .andExpect(jsonPath("$.errorCode").value("AUTH_RATE_LIMIT_EXCEEDED"));
 
         verify(authService).register(any(RegisterRequest.class));
     }
@@ -430,7 +435,7 @@ class AuthControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().string("Retry-After", matchesPattern("\\d+")))
-                .andExpect(jsonPath("$.code").value("AUTH_RATE_LIMIT_EXCEEDED"));
+                .andExpect(jsonPath("$.errorCode").value("AUTH_RATE_LIMIT_EXCEEDED"));
 
         verify(authService).refresh(any(RefreshRequest.class));
     }

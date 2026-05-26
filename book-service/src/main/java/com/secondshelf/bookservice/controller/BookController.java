@@ -5,6 +5,7 @@ import com.secondshelf.bookservice.dto.CreateBookRequest;
 import com.secondshelf.bookservice.dto.UpdateBookRequest;
 import com.secondshelf.bookservice.security.UserPrincipal;
 import com.secondshelf.bookservice.service.BookService;
+import com.secondshelf.bookservice.web.PageableSanitizer;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -20,6 +21,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Set;
+
 import static org.springframework.data.domain.Sort.Direction.DESC;
 
 @RestController
@@ -27,6 +30,8 @@ import static org.springframework.data.domain.Sort.Direction.DESC;
 @RequiredArgsConstructor
 @Tag(name = "Book API", description = "Book catalog and owner book management endpoints")
 public class BookController {
+
+    private static final Set<String> BOOK_SORT_FIELDS = Set.of("createdAt", "updatedAt", "title", "author");
 
     private final BookService bookService;
 
@@ -42,7 +47,7 @@ public class BookController {
             @ParameterObject
             @PageableDefault(size = 20, sort = "createdAt", direction = DESC) Pageable pageable
     ) {
-        return bookService.getPublicCatalog(pageable);
+        return bookService.getPublicCatalog(PageableSanitizer.sanitize(pageable, BOOK_SORT_FIELDS));
     }
 
     @Operation(
@@ -60,7 +65,7 @@ public class BookController {
             @ParameterObject
             @PageableDefault(size = 20, sort = "createdAt", direction = DESC) Pageable pageable
     ) {
-        return bookService.getMyBooks(principal, pageable);
+        return bookService.getMyBooks(principal, PageableSanitizer.sanitize(pageable, BOOK_SORT_FIELDS));
     }
 
     @Operation(

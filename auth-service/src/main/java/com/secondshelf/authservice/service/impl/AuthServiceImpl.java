@@ -183,7 +183,7 @@ public class AuthServiceImpl implements AuthService {
     private String resolveErrorCode(RuntimeException ex) {
         if (ex instanceof UserServiceClientException userServiceClientException
                 && userServiceClientException.getDownstream() != null) {
-            return userServiceClientException.getDownstream().getCode();
+            return userServiceClientException.getDownstream().getErrorCode();
         }
 
         if (ex instanceof ResponseStatusException responseStatusException) {

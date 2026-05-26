@@ -14,6 +14,7 @@ import com.secondshelf.notificationservice.service.NotificationService;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -30,6 +31,7 @@ import java.time.LocalDateTime;
 import java.util.Date;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -88,6 +90,25 @@ class NotificationControllerTest {
     }
 
     @Test
+    void getMyNotificationsShouldClampPageSizeAndAllowWhitelistedSort() throws Exception {
+        when(notificationService.getMyNotifications(any(UserPrincipal.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/api/v1/notifications")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(42L, "alice", List.of("ROLE_USER"))))
+                        .param("size", "250")
+                        .param("sort", "status,desc"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(notificationService).getMyNotifications(eq(new UserPrincipal(42L, "alice")), pageableCaptor.capture());
+
+        Pageable pageable = pageableCaptor.getValue();
+        assertThat(pageable.getPageSize()).isEqualTo(100);
+        assertThat(pageable.getSort().getOrderFor("status")).isNotNull();
+    }
+
+    @Test
     void getUnreadCountShouldReturnCountForAuthenticatedUser() throws Exception {
         // arrange
         when(notificationService.getUnreadCount(new UserPrincipal(42L, "alice"))).thenReturn(5L);
@@ -137,7 +158,9 @@ class NotificationControllerTest {
         mockMvc.perform(post("/api/v1/notifications/10/read")
                         .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(42L, "alice", List.of("ROLE_USER")))))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("NOTIFICATION_NOT_FOUND"))
+                .andExpect(jsonPath("$.errorCode").value("NOTIFICATION_NOT_FOUND"))
+                .andExpect(jsonPath("$.path").value("/api/v1/notifications/10/read"))
+                .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.message").value("Notification not found."))
                 .andExpect(jsonPath("$.timestamp").exists());
     }
@@ -148,7 +171,7 @@ class NotificationControllerTest {
         mockMvc.perform(post("/api/v1/notifications/not-a-number/read")
                         .header(HttpHeaders.AUTHORIZATION, bearer(jwtFor(42L, "alice", List.of("ROLE_USER")))))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST_PARAMETER"))
+                .andExpect(jsonPath("$.errorCode").value("INVALID_REQUEST_PARAMETER"))
                 .andExpect(jsonPath("$.message").value("Invalid request parameter: id"))
                 .andExpect(jsonPath("$.timestamp").exists());
     }

@@ -113,7 +113,7 @@ class AdminUserControllerTest {
         mockMvc.perform(put("/api/v1/admin/users/77/unblock")
                         .with(SecurityMockMvcRequestPostProcessors.user("admin").roles("ADMIN")))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"))
+                .andExpect(jsonPath("$.errorCode").value("USER_NOT_FOUND"))
                 .andExpect(jsonPath("$.message").value("User with id = 77 not found."));
     }
 
@@ -130,9 +130,14 @@ class AdminUserControllerTest {
                         .contentType(APPLICATION_JSON)
                         .content(requestBody))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.path").value("/api/v1/admin/users/15/roles"))
+                .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.message").value("Request validation failed"))
-                .andExpect(jsonPath("$.details.roles").value("must not be empty"));
+                .andExpect(jsonPath("$.details.roles").value("must not be empty"))
+                .andExpect(jsonPath("$.details.fieldErrors[0].field").value("roles"))
+                .andExpect(jsonPath("$.details.fieldErrors[0].reason").value("must not be empty"))
+                .andExpect(jsonPath("$.details.fieldErrors[0].code").exists());
     }
 
     @Test

@@ -4,6 +4,7 @@ import com.secondshelf.exchangeservice.dto.CreateExchangeRequest;
 import com.secondshelf.exchangeservice.dto.ExchangeResponse;
 import com.secondshelf.exchangeservice.security.UserPrincipal;
 import com.secondshelf.exchangeservice.service.ExchangeService;
+import com.secondshelf.exchangeservice.web.PageableSanitizer;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -18,6 +19,8 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Set;
+
 import static org.springframework.data.domain.Sort.Direction.DESC;
 
 @RestController
@@ -26,6 +29,8 @@ import static org.springframework.data.domain.Sort.Direction.DESC;
 @Tag(name = "Exchange API", description = "Exchange request workflow endpoints")
 @SecurityRequirement(name = "bearerAuth")
 public class ExchangeController {
+
+    private static final Set<String> EXCHANGE_SORT_FIELDS = Set.of("createdAt", "updatedAt", "status");
 
     private final ExchangeService exchangeService;
 
@@ -60,7 +65,7 @@ public class ExchangeController {
     public Page<ExchangeResponse> outgoing(@AuthenticationPrincipal UserPrincipal principal,
                                            @ParameterObject
                                            @PageableDefault(size = 20, sort = "createdAt", direction = DESC) Pageable pageable) {
-        return exchangeService.myOutgoing(principal, pageable);
+        return exchangeService.myOutgoing(principal, PageableSanitizer.sanitize(pageable, EXCHANGE_SORT_FIELDS));
     }
 
     @Operation(
@@ -75,7 +80,7 @@ public class ExchangeController {
     public Page<ExchangeResponse> incoming(@AuthenticationPrincipal UserPrincipal principal,
                                            @ParameterObject
                                            @PageableDefault(size = 20, sort = "createdAt", direction = DESC) Pageable pageable) {
-        return exchangeService.myIncoming(principal, pageable);
+        return exchangeService.myIncoming(principal, PageableSanitizer.sanitize(pageable, EXCHANGE_SORT_FIELDS));
     }
 
     @Operation(
