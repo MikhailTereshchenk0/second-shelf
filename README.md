@@ -417,6 +417,23 @@ If a repair attempt fails, the exchange remains `REPAIR_REQUIRED`,
 successful repair is idempotent and returns the already repaired exchange
 without repeating book transitions.
 
+### Operational Outbox Recovery
+
+Admins can inspect and manually re-queue terminally failed exchange outbox
+events through:
+
+- `GET /api/v1/admin/outbox/terminal-failed`
+- `POST /api/v1/admin/outbox/{eventId}/retry`
+- both require a bearer JWT with `ROLE_ADMIN`
+
+The terminal-failed listing returns summary fields and `lastError`; it does not
+return serialized outbox payload bodies by default. Manual retry is allowed only
+for `TERMINAL_FAILED` events. It clears `failedAt`, increments
+`manualRetryCount`, updates `manualRetriedAt`, sets `nextAttemptAt` to the
+current time, and moves the event back to `PENDING` so the scheduled outbox
+publisher can publish it asynchronously. The admin endpoint does not publish to
+RabbitMQ synchronously.
+
 ## Statuses
 
 ### Book Statuses
@@ -699,6 +716,10 @@ Additional async observability URLs:
      pending outbox events;
    - start RabbitMQ again, wait longer than the publisher delay, and verify
      that pending events are published and notifications appear.
+   - for an event that exhausted max attempts and became `TERMINAL_FAILED`,
+     use `GET /api/v1/admin/outbox/terminal-failed` to inspect the summary and
+     `POST /api/v1/admin/outbox/{eventId}/retry` to re-queue it after fixing
+     the broker or routing issue.
 5. DLQ behavior:
    - publish a valid JSON message with missing required fields or an
      unsupported `eventType` to `exchange.events` with routing key

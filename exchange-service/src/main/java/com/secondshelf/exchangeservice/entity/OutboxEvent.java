@@ -54,6 +54,9 @@ public class OutboxEvent {
     @Column(name = "failed_at")
     private LocalDateTime failedAt;
 
+    @Column(name = "manual_retried_at")
+    private LocalDateTime manualRetriedAt;
+
     @Column(name = "first_failed_at")
     private LocalDateTime firstFailedAt;
 
@@ -69,6 +72,9 @@ public class OutboxEvent {
 
     @Column(name = "attempts_count", nullable = false)
     private int attemptsCount;
+
+    @Column(name = "manual_retry_count", nullable = false)
+    private int manualRetryCount;
 
     @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "last_error", columnDefinition = "TEXT")
@@ -118,6 +124,18 @@ public class OutboxEvent {
         failedAt = null;
         lastError = null;
         errorCode = null;
+    }
+
+    public void requeueTerminalFailure(LocalDateTime retryAt) {
+        if (status != OutboxEventStatus.TERMINAL_FAILED) {
+            throw new IllegalStateException("Only terminally failed outbox events can be manually retried.");
+        }
+
+        status = OutboxEventStatus.PENDING;
+        failedAt = null;
+        nextAttemptAt = retryAt != null ? retryAt : LocalDateTime.now();
+        manualRetriedAt = nextAttemptAt;
+        manualRetryCount++;
     }
 
     private String normalizeErrorMessage(String errorMessage) {
