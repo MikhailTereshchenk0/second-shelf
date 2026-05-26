@@ -7,6 +7,7 @@ import com.secondshelf.observability.AuditLogger;
 import com.secondshelf.observability.AuditOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,7 @@ public class RefreshTokenService {
     private final SecureRandom secureRandom;
     private final byte[] refreshTokenPepper;
 
+    @Autowired
     public RefreshTokenService(
             RefreshTokenRepository refreshTokenRepository,
             @Value("${jwt.refresh-expiration-ms:2592000000}") long refreshTtlMs,
