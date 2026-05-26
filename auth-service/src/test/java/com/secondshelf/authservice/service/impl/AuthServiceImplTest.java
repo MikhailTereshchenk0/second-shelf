@@ -113,6 +113,25 @@ class AuthServiceImplTest {
     }
 
     @Test
+    void loginShouldNotIssueTokensWhenBlockedUserAuthenticationIsRejectedByUserService() {
+        LoginRequest request = new LoginRequest();
+        request.setUsername("blocked-user");
+        request.setPassword("password123");
+
+        when(userServiceClient.authenticate("blocked-user", "password123")).thenReturn(null);
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> authService.login(request)
+        );
+
+        assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatusCode());
+        assertEquals("Invalid username or password.", exception.getReason());
+        verify(userServiceClient).authenticate("blocked-user", "password123");
+        verifyNoInteractions(refreshTokenService, jwtTokenProvider);
+    }
+
+    @Test
     void refreshShouldReturnNewAccessTokenAndRotatedRefreshTokenWhenRefreshTokenIsValid() {
         // arrange
         RefreshRequest request = new RefreshRequest();

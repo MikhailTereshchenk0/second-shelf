@@ -2,67 +2,79 @@
 
 ## Цель документа
 
-Документ фиксирует базовые требования ИБ для `Second Shelf` и разделяет их на:
+Документ фиксирует требования ИБ для `Second Shelf` и разделяет их на четыре группы:
 
-- уже реализованные в приложении;
-- обязательные для инфраструктуры и эксплуатации;
-- требующие организационного контроля или отдельного внедрения.
+- реализовано в application code;
+- требуется в deployment infrastructure;
+- требуется как organizational process;
+- неприменимо к текущему проекту с обоснованием.
 
-## Базовые требования
+Система спроектирована и документирована для развертывания в attestation-ready environment. Документ не утверждает,
+что система формально аттестована или сертифицирована.
 
-| Область | Требование для Second Shelf | Текущее состояние |
+## 1. Реализовано в application code
+
+| Область | Требование | Текущее состояние |
 | --- | --- | --- |
-| Идентификация пользователей | Все пользовательские операции, кроме публичных auth-эндпоинтов и каталога `/api/v1/books/public`, должны выполняться от имени аутентифицированного субъекта | Реализовано через JWT |
-| Управление сессиями | Должны использоваться access token и refresh-токены с отзывом и ротацией | Реализовано в `auth-service` |
-| Защита учетных данных | Пароли не должны храниться в открытом виде | Реализовано: bcrypt в `user-service` |
-| Защита refresh-токенов | Refresh-токены не должны храниться в открытом виде в БД | Реализовано: SHA-256 хэш в `auth-service` |
-| Межсервисовая аутентификация | Внутренние API должны быть отделены от публичных и требовать отдельный механизм аутентификации | Реализовано: `X-Internal-Token` для `user-service` и `book-service` |
-| Разграничение доступа | Операции над профилем, книгами, обменами и уведомлениями должны выполняться по принципу минимально необходимого доступа | Реализовано: owner-based и participant-based authorization, `ROLE_ADMIN` для админ-функций |
-| Изоляция данных | Персональные данные и бизнес-данные разных доменов должны храниться в отдельных БД | Реализовано: изолированные БД по сервисам |
-| Целостность async-потока | События обмена не должны теряться при сбое между БД и брокером сообщений | Реализовано: outbox pattern в `exchange-service` |
-| Обработка ошибок доставки | Невалидные или многократно неуспешные сообщения должны попадать в DLQ | Реализовано: DLQ и retry-логика |
-| Контроль работоспособности | Сервисы должны публиковать health checks | Реализовано: Actuator health, readiness, liveness; async health для `exchange-service` и `notification-service` |
-| Защита транспортного уровня | Внешние и внутренние соединения должны работать через TLS | Должно обеспечиваться инфраструктурой |
-| Сетевая фильтрация | Доступ к сервисам, БД и RabbitMQ должен ограничиваться firewall и сетевой сегментацией | Должно обеспечиваться инфраструктурой |
-| Централизованное логирование | Логи всех сервисов должны собираться централизованно с ограничением доступа и поиском по инцидентам | Должно обеспечиваться инфраструктурой |
-| Защита конечных узлов | Узлы размещения должны быть покрыты EDR/антивирусом и системным hardening | Должно обеспечиваться инфраструктурой |
-| Обнаружение атак | Для периметра и внутренних сегментов должны использоваться IDS/IPS и DNS-логирование | Должно обеспечиваться инфраструктурой |
-| Управление секретами | `JWT_SECRET`, `INTERNAL_TOKEN`, пароли БД и RabbitMQ не должны храниться в открытом виде в deployment-конфигурации | Должно обеспечиваться инфраструктурой через secret manager |
-| Резервное копирование | Базы данных и конфигурация брокера должны резервироваться по утвержденной политике | Должно обеспечиваться инфраструктурой |
-| Синхронизация времени | Все узлы должны использовать единый источник времени | Должно обеспечиваться инфраструктурой |
-| Аудит админ-действий | Изменение ролей, блокировка и разблокировка пользователей должны попадать в централизованный аудит | Частично реализовано на уровне API; хранение и корреляция должны обеспечиваться логированием |
-| Ограничение технических интерфейсов | Swagger, actuator и management endpoints не должны быть общедоступны в production без дополнительного ограничения | Требует ограничения на ingress/firewall уровне |
+| Personal data minimization | Сервисы должны хранить только данные, необходимые их домену | Реализовано через domain ownership и database-per-service; подробности в `03-personal-data-register.md` |
+| Идентификация пользователей | Все пользовательские операции, кроме публичных auth endpoint'ов и публичного каталога, должны выполняться от имени аутентифицированного субъекта | Реализовано через JWT |
+| Authorization | Доступ к профилям, книгам, обменам, уведомлениям и admin flows должен быть ограничен владельцем, участником или ролью | Реализовано: owner-based, participant-based, `ROLE_ADMIN` |
+| Password hashing | Пароли не должны храниться в открытом виде | Реализовано: bcrypt-хэш в `user-service` |
+| Password policy | Пароль должен быть достаточно сложным и не включать username/email local-part | Реализовано в `auth-service` и `user-service`: 10-100 символов, lower/upper/digit/special, без whitespace, username и email local-part |
+| Refresh token model | Должны использоваться access token и refresh token с отзывом и ротацией | Реализовано в `auth-service` |
+| Refresh token storage | Сырой refresh token не должен храниться в БД | Реализовано: HMAC-SHA-256 hash с server-side pepper |
+| Refresh token reuse detection | Повторное использование отозванного refresh token должно приводить к revocation family | Реализовано в `auth-service` |
+| Rate limiting | Публичные auth endpoint'ы должны иметь защиту от brute force и credential stuffing | Реализован in-memory limiter для login, register и refresh; основной distributed limiter требуется в инфраструктуре |
+| Internal APIs | Внутренние сервисные endpoint'ы должны быть отделены от публичных API | Реализовано: `/internal/**`, `X-Internal-Token`, скрытие из Swagger |
+| Audit logging | Security-relevant события должны логироваться без секретов | Реализовано через `observability-common` audit logger и маскирование чувствительных полей |
+| Correlation id | Запросы и async-события должны иметь идентификатор корреляции | Реализовано: `X-Correlation-Id` создается/сохраняется gateway и сервисами, передается в RabbitMQ |
+| Изоляция данных | Данные разных доменов должны храниться отдельно | Реализовано: пять service databases |
+| Async reliability | События обмена не должны теряться между DB commit и broker publish | Реализовано: outbox pattern, publisher confirms, retry, `TERMINAL_FAILED` |
+| DLQ / redrive | Невалидные или исчерпавшие retry сообщения должны попадать в DLQ с возможностью операционного redrive | Реализовано в `notification-service` |
+| Distributed consistency repair | Partial failures обмена должны быть явно видимы и ремонтируемы | Реализовано: `REPAIR_REQUIRED` и admin repair flow |
+| Gateway entry point | Frontend должен иметь единый entry point и CORS boundary | Реализовано: `api-gateway`; production-like compose публикует только gateway |
+| Non-root containers | Runtime контейнеры не должны запускать Java-приложение под root | Реализовано: `appuser` во всех Java service Dockerfile |
+| Production secret validation | Non-local startup должен отвергать отсутствующие и demo secrets | Реализовано через `SecurityConfigurationValidator` и seed admin password checks |
 
-## Реализованные прикладные меры
+## 2. Требуется в deployment infrastructure
 
-В текущем коде `Second Shelf` уже присутствуют следующие меры:
+| Область | Требование |
+| --- | --- |
+| TLS | HTTPS для внешнего трафика; защищенный транспорт или доверенный закрытый сегмент для internal HTTP, PostgreSQL и RabbitMQ |
+| Gateway / reverse proxy | Публиковать только gateway/reverse proxy; direct service ports, PostgreSQL, RabbitMQ и management UI не должны быть доступны из Internet |
+| Firewall / segmentation | Ограничить service-to-service маршруты, `/internal/**`, DB и RabbitMQ через firewall, security groups или network policies |
+| Centralized logs and retention | Централизованный сбор логов, ограничение доступа, retention policy, поиск по `correlationId`, защита от несанкционированного изменения |
+| Backups and restore tests | Backup всех service DB и RabbitMQ operational state; регулярные restore tests с журналом результатов |
+| DB/RabbitMQ isolation | Раздельные credentials по средам, желательно per service; запрет demo credentials; сетевое ограничение доступа |
+| Secret manager | Хранение и ротация `JWT_SECRET`, `AUTH_REFRESH_TOKEN_PEPPER`, `INTERNAL_TOKEN`, DB/RabbitMQ credentials вне git |
+| Distributed rate limiting | Для нескольких инстансов нужен limiter на gateway/ingress/WAF или shared backend вроде Redis |
+| Vulnerability scanning | Dependency scan, image scan и base-image monitoring в CI/CD или security pipeline |
+| Management endpoints | Swagger, OpenAPI, Actuator, metrics и RabbitMQ UI должны быть доступны только admin контуру |
+| Time synchronization | Единый источник времени для токенов, audit logs, correlation и incident response |
 
-- JWT для публичных API;
-- refresh-токены с ротацией;
-- хэширование паролей;
-- internal token для внутренних API;
-- owner-based authorization;
-- изолированные БД по сервисам;
-- outbox pattern;
-- DLQ и повторные попытки доставки;
-- health checks.
+## 3. Требуется как organizational process
 
-## Требования к эксплуатационной среде
+| Область | Требование |
+| --- | --- |
+| `3-ИН` classification | Подтвердить применимость класса `3-ИН` для конкретной среды и регуляторного scope |
+| Personal data governance | Утвердить реестр ПДн, цели обработки, retention, порядок удаления и права доступа |
+| Access review | Периодически пересматривать admin accounts, production roles, доступ к logs, backups, secret manager, DB и RabbitMQ |
+| Incident response | Назначить ответственных, эскалацию, playbooks, evidence handling и post-incident review |
+| Backup governance | Утвердить RPO/RTO, частоту backup, частоту restore tests и владельцев процедуры |
+| Change management | Фиксировать изменения gateway routes, CORS, firewall, secrets, retention, scan suppressions и production profiles |
+| Attestation readiness | Собирать доказательства: deployment diagrams, scan reports, test reports, backup/restore logs, security configuration и регламенты |
 
-Для соответствия целевому уровню защиты deployment-контур должен дополнительно закрыть:
+## 4. Неприменимо к текущему проекту
 
-- TLS для клиентских и внутренних соединений;
-- firewall и сетевую сегментацию;
-- централизованное логирование;
-- защищенное backup storage;
-- IDS/IPS;
-- DNS-логирование;
-- EDR/антивирус;
-- синхронизацию времени;
-- secret manager.
+| Требование | Обоснование |
+| --- | --- |
+| ЭЦП пользовательских документов | В системе нет юридически значимого документооборота и пользовательского подписания |
+| Пользовательская PKI / личные ключи | Приложение не выпускает и не хранит ключи пользователей или УЦ |
+| Wi-Fi controls на уровне приложения | Backend не управляет Wi-Fi инфраструктурой |
+| Removable media controls на уровне приложения | Runtime-код не работает со съемными носителями; это относится к эксплуатации backup/export процессов |
 
 ## Примечание по аттестации
 
-Этот документ фиксирует baseline-требования для системы класса `3-ИН`, однако итоговая аттестация
-будет зависеть от конкретной среды развертывания `Second Shelf`, используемых средств защиты и
-подтверждающих эксплуатационных регламентов.
+Документ фиксирует baseline-требования для системы, предварительно рассматриваемой как `3-ИН`. Формальная аттестация
+должна проводиться для конкретного deployment environment с учетом инфраструктуры, организационных процедур и
+подтверждающих материалов.

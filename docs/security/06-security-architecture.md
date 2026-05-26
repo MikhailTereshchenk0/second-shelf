@@ -6,6 +6,7 @@
 flowchart LR
     Client["Клиент / Frontend / Internet"]
     Ingress["Ingress / Reverse Proxy / TLS"]
+    Gateway["api-gateway"]
 
     Auth["auth-service"]
     User["user-service"]
@@ -36,11 +37,12 @@ flowchart LR
     end
 
     Client --> Ingress
-    Ingress --> Auth
-    Ingress --> User
-    Ingress --> Book
-    Ingress --> Exchange
-    Ingress --> Notification
+    Ingress --> Gateway
+    Gateway --> Auth
+    Gateway --> User
+    Gateway --> Book
+    Gateway --> Exchange
+    Gateway --> Notification
 
     Auth -->|"X-Internal-Token"| User
     Exchange -->|"X-Internal-Token"| Book
@@ -53,6 +55,7 @@ flowchart LR
     Exchange --> ExchangeDb
     Notification --> NotificationDb
 
+    FW --- Gateway
     FW --- Auth
     FW --- User
     FW --- Book
@@ -82,18 +85,16 @@ flowchart LR
 
 Сюда относятся входящие пользовательские запросы к:
 
-- `auth-service`
-- `user-service`
-- `book-service`
-- `exchange-service`
-- `notification-service`
+- `api-gateway` как frontend и production entry point;
+- domain services только как downstream targets за gateway/reverse proxy.
 
-Защита этой зоны требует TLS, публикации только необходимых endpoint'ов и фильтрации трафика.
+Защита этой зоны требует TLS, публикации только gateway/reverse proxy и фильтрации трафика.
 
 ### 2. Прикладная сервисная зона
 
 Здесь находятся сами Spring Boot сервисы с бизнес-логикой:
 
+- `api-gateway` маршрутизирует frontend paths, CORS и correlation id;
 - `auth-service` выпускает JWT и refresh-токены;
 - `user-service` хранит профиль и проверяет пароль;
 - `book-service` реализует owner-based доступ к книгам;
@@ -137,13 +138,19 @@ flowchart LR
 
 - JWT для пользовательских API;
 - refresh-токены и их ротация;
+- refresh token reuse detection и family revocation;
 - in-memory rate limiting для `POST /api/auth/login`, `POST /api/auth/register` и `POST /api/auth/refresh`;
 - хэширование паролей;
+- password policy;
 - `X-Internal-Token` для внутренних API;
 - owner-based authorization;
+- participant-based authorization и admin authorization;
 - изолированные БД;
 - outbox pattern;
-- DLQ;
+- retry/backoff, DLQ, redrive и repair flow;
+- audit logging и correlation id;
+- non-root runtime containers;
+- production secret validation;
 - health checks.
 
 ## Зависимость от инфраструктуры
@@ -151,6 +158,7 @@ flowchart LR
 Архитектура `Second Shelf` предполагает, что вне приложения будут обеспечены:
 
 - TLS;
+- gateway/reverse proxy exposure;
 - firewall;
 - централизованное логирование;
 - backup storage;

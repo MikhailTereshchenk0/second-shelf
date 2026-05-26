@@ -23,6 +23,7 @@ import java.util.Set;
 
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -78,6 +79,14 @@ class AdminUserControllerTest {
         mockMvc.perform(put("/api/v1/admin/users/10/block")
                         .with(SecurityMockMvcRequestPostProcessors.user("user").roles("USER")))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void blockShouldReturnUnauthorizedWithoutAuthentication() throws Exception {
+        mockMvc.perform(put("/api/v1/admin/users/10/block"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(adminUserService);
     }
 
     @Test
@@ -138,6 +147,21 @@ class AdminUserControllerTest {
                 .andExpect(jsonPath("$.details.fieldErrors[0].field").value("roles"))
                 .andExpect(jsonPath("$.details.fieldErrors[0].reason").value("must not be empty"))
                 .andExpect(jsonPath("$.details.fieldErrors[0].code").exists());
+    }
+
+    @Test
+    void updateRolesShouldReturnForbiddenForNonAdminBeforeCallingService() throws Exception {
+        String requestBody = objectMapper.writeValueAsString(
+                new UpdateRolesRequestBody(Set.of(Role.ROLE_ADMIN))
+        );
+
+        mockMvc.perform(put("/api/v1/admin/users/15/roles")
+                        .with(SecurityMockMvcRequestPostProcessors.user("user").roles("USER"))
+                        .contentType(APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(adminUserService);
     }
 
     @Test

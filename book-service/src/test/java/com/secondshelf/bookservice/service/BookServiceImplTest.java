@@ -157,6 +157,48 @@ class BookServiceImplTest {
     }
 
     @Test
+    void deleteShouldThrowAccessDeniedWhenBookBelongsToAnotherUser() {
+        Book book = ownedBook(61L, BookVisibility.PUBLIC, BookStatus.AVAILABLE);
+        when(bookRepository.findById(61L)).thenReturn(Optional.of(book));
+
+        BookAccessDeniedException exception = assertThrows(
+                BookAccessDeniedException.class,
+                () -> bookService.delete(61L, OTHER_USER)
+        );
+
+        assertEquals("Access denied for book id = 61", exception.getMessage());
+        verify(bookRepository, never()).delete(any(Book.class));
+    }
+
+    @Test
+    void publishShouldThrowAccessDeniedWhenBookBelongsToAnotherUser() {
+        Book book = ownedBook(62L, BookVisibility.PRIVATE, BookStatus.AVAILABLE);
+        when(bookRepository.findById(62L)).thenReturn(Optional.of(book));
+
+        BookAccessDeniedException exception = assertThrows(
+                BookAccessDeniedException.class,
+                () -> bookService.publish(62L, OTHER_USER)
+        );
+
+        assertEquals("Access denied for book id = 62", exception.getMessage());
+        verify(bookRepository, never()).save(any(Book.class));
+    }
+
+    @Test
+    void hideShouldThrowAccessDeniedWhenBookBelongsToAnotherUser() {
+        Book book = ownedBook(63L, BookVisibility.PUBLIC, BookStatus.AVAILABLE);
+        when(bookRepository.findById(63L)).thenReturn(Optional.of(book));
+
+        BookAccessDeniedException exception = assertThrows(
+                BookAccessDeniedException.class,
+                () -> bookService.hide(63L, OTHER_USER)
+        );
+
+        assertEquals("Access denied for book id = 63", exception.getMessage());
+        verify(bookRepository, never()).save(any(Book.class));
+    }
+
+    @Test
     void reservedBookShouldNotBeUpdatedByOwner() {
         Book book = ownedBook(7L, BookVisibility.PUBLIC, BookStatus.RESERVED);
         UpdateBookRequest request = new UpdateBookRequest();
