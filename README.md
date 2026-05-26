@@ -1,11 +1,11 @@
 # Second Shelf
 
 Second Shelf is a multi-module Spring Boot backend for book exchange between users.
-The final practical-part architecture consists of five services with isolated
-PostgreSQL databases, direct REST calls without an API gateway, JWT-based
-authentication for public APIs, `X-Internal-Token` protection for private
-service APIs, RabbitMQ delivery for exchange domain events, and persisted
-in-app notifications built through the outbox pattern.
+The architecture uses an API Gateway as the recommended production and frontend
+entry point, backed by five domain services with isolated PostgreSQL databases,
+JWT-based authentication for public APIs, `X-Internal-Token` protection for
+private service APIs, RabbitMQ delivery for exchange domain events, and
+persisted in-app notifications built through the outbox pattern.
 
 ## Documentation
 
@@ -15,6 +15,7 @@ in-app notifications built through the outbox pattern.
 
 | Service | Port | Responsibility | Database |
 | --- | --- | --- | --- |
+| `api-gateway` | `8088` | Production/frontend entry point, CORS, routing, correlation id creation | - |
 | `auth-service` | `8080` | Registration, login, access token issuing, refresh rotation, logout, logout-all | `auth_db` |
 | `user-service` | `8081` | User profiles, roles, block/unblock, internal claims/auth APIs | `users_db` |
 | `book-service` | `8082` | Public catalog, owner book management, internal book state transitions | `books_db` |
@@ -23,6 +24,7 @@ in-app notifications built through the outbox pattern.
 
 Maven root modules:
 
+- `api-gateway`
 - `auth-service`
 - `user-service`
 - `book-service`
@@ -33,7 +35,16 @@ Maven root modules:
 
 ### Synchronous REST Boundaries
 
-- There is no API gateway in this repository. Clients call each service directly.
+- `api-gateway` is the recommended production and frontend entry point. It
+  centralizes public route forwarding, CORS configuration through
+  `FRONTEND_ALLOWED_ORIGINS`, and `X-Correlation-Id` creation when the client
+  does not provide one.
+- Direct access to individual service ports is kept only as a local development
+  convenience for debugging, Swagger access when enabled, and isolated service
+  testing.
+- JWT validation intentionally remains in downstream services for now; the
+  gateway preserves the `Authorization` header and does not perform token
+  validation.
 - `auth-service` owns registration, login, refresh rotation, logout, logout-all,
   and `GET /api/auth/me`.
 - `user-service` owns user profiles, administrator role management, and
@@ -182,6 +193,7 @@ Maven root modules:
 flowchart LR
     Client["Client / Frontend"]
 
+    Gateway["api-gateway"]
     Auth["auth-service"]
     User["user-service"]
     Book["book-service"]
@@ -202,11 +214,12 @@ flowchart LR
         Queue -. dead-letter .-> DLQ
     end
 
-    Client -->|"login / register / refresh"| Auth
-    Client -->|"Bearer JWT"| User
-    Client -->|"Bearer JWT"| Book
-    Client -->|"Bearer JWT"| Exchange
-    Client -->|"Bearer JWT"| Notification
+    Client -->|"HTTP API / Bearer JWT"| Gateway
+    Gateway -->|"/api/auth/**"| Auth
+    Gateway -->|"/api/v1/users/** / admin users"| User
+    Gateway -->|"/api/v1/books/**"| Book
+    Gateway -->|"/api/v1/exchanges/** / admin outbox"| Exchange
+    Gateway -->|"/api/v1/notifications/**"| Notification
 
     Auth -->|"X-Internal-Token"| User
     Exchange -->|"X-Internal-Token"| Book
@@ -539,6 +552,8 @@ Current exchange-derived notifications:
 
 Notes for the current Compose setup:
 
+- Frontend clients should use `http://localhost:8088` through `api-gateway`.
+  The individual service ports remain published for local/dev convenience.
 - Service-to-service base URLs, `DB_HOST`, and `RABBITMQ_HOST` are overridden
   with container DNS names in `docker-compose.yaml`.
 - Service containers expose Docker health checks based on
@@ -550,6 +565,7 @@ Notes for the current Compose setup:
 
 | Component | Default URL |
 | --- | --- |
+| `api-gateway` | `http://localhost:8088` |
 | `auth-service` | `http://localhost:8080` |
 | `user-service` | `http://localhost:8081` |
 | `book-service` | `http://localhost:8082` |

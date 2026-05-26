@@ -1,0 +1,97 @@
+server:
+  port: ${API_GATEWAY_PORT:8088}
+
+spring:
+  application:
+    name: api-gateway
+  profiles:
+    default: local
+  cloud:
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            connect-timeout: ${API_GATEWAY_CONNECT_TIMEOUT_MS:5000}
+            response-timeout: ${API_GATEWAY_RESPONSE_TIMEOUT:30s}
+          globalcors:
+            add-to-simple-url-handler-mapping: true
+            cors-configurations:
+              '[/**]':
+                allowed-origins: ${FRONTEND_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+                allowed-methods:
+                  - GET
+                  - POST
+                  - PUT
+                  - PATCH
+                  - DELETE
+                  - OPTIONS
+                allowed-headers:
+                  - Authorization
+                  - Content-Type
+                  - X-Correlation-Id
+                  - Idempotency-Key
+                exposed-headers:
+                  - X-Correlation-Id
+                allow-credentials: true
+          routes:
+            - id: auth-service
+              uri: ${AUTH_SERVICE_URI:http://localhost:8080}
+              predicates:
+                - Path=/api/auth/**
+            - id: user-service-users
+              uri: ${USER_SERVICE_URI:http://localhost:8081}
+              predicates:
+                - Path=/api/v1/users/**
+            - id: user-service-admin-users
+              uri: ${USER_SERVICE_URI:http://localhost:8081}
+              predicates:
+                - Path=/api/v1/admin/users/**
+            - id: book-service
+              uri: ${BOOK_SERVICE_URI:http://localhost:8082}
+              predicates:
+                - Path=/api/v1/books/**
+            - id: exchange-service-exchanges
+              uri: ${EXCHANGE_SERVICE_URI:http://localhost:8083}
+              predicates:
+                - Path=/api/v1/exchanges/**
+            - id: exchange-service-admin-exchanges
+              uri: ${EXCHANGE_SERVICE_URI:http://localhost:8083}
+              predicates:
+                - Path=/api/v1/admin/exchanges/**
+            - id: exchange-service-admin-outbox
+              uri: ${EXCHANGE_SERVICE_URI:http://localhost:8083}
+              predicates:
+                - Path=/api/v1/admin/outbox/**
+            - id: notification-service-notifications
+              uri: ${NOTIFICATION_SERVICE_URI:http://localhost:8084}
+              predicates:
+                - Path=/api/v1/notifications/**
+            - id: notification-service-admin-notifications
+              uri: ${NOTIFICATION_SERVICE_URI:http://localhost:8084}
+              predicates:
+                - Path=/api/v1/admin/notifications/**
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+logging:
+  pattern:
+    level: "%5p [corr:%X{correlationId:-}]"
