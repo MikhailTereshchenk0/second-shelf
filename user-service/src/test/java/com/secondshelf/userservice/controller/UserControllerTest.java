@@ -29,6 +29,7 @@ import java.util.Set;
 
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -134,6 +135,14 @@ class UserControllerTest {
     }
 
     @Test
+    void meShouldRequireAuthentication() throws Exception {
+        mockMvc.perform(get("/api/v1/users/me"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(userService);
+    }
+
+    @Test
     void updateProfileShouldReturnPrivateProfileForOwner() throws Exception {
         PrivateUserProfileResponse response = PrivateUserProfileResponse.builder()
                 .id(11L)
@@ -172,6 +181,21 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.enabled").value(true));
 
         verify(userService).updateProfile(eq(11L), org.mockito.ArgumentMatchers.any(UpdateUserProfileRequest.class));
+    }
+
+    @Test
+    void updateProfileShouldReturnForbiddenWhenAuthenticatedUserIsNotOwner() throws Exception {
+        mockMvc.perform(put("/api/v1/users/11")
+                        .with(SecurityMockMvcRequestPostProcessors.authentication(authenticatedUser(99L, "mallory", "ROLE_USER")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "firstName": "Mallory"
+                                }
+                                """))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(userService);
     }
 
     @Test

@@ -733,6 +733,31 @@ class ExchangeServiceTest {
     }
 
     @Test
+    void acceptShouldRejectRequesterAcceptingOwnOutgoingRequest() {
+        ExchangeRequest request = ExchangeRequest.builder()
+                .id(10L)
+                .requestedBookId(100L)
+                .offeredBookId(200L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.PENDING)
+                .build();
+
+        when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
+
+        ExchangeForbiddenException exception = assertThrows(
+                ExchangeForbiddenException.class,
+                () -> exchangeService.accept(10L, new UserPrincipal(42L, "requester"))
+        );
+
+        assertEquals("ONLY_OWNER_CAN_ACCEPT", exception.getCode());
+        assertEquals("Only owner can accept.", exception.getMessage());
+        verify(bookServiceClient, never()).reserve(anyLong());
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+        verifyNoInteractions(exchangeOutboxService);
+    }
+
+    @Test
     void acceptShouldRejectInvalidStatusTransition() {
         // arrange
         ExchangeRequest request = ExchangeRequest.builder()
@@ -856,6 +881,31 @@ class ExchangeServiceTest {
                 request,
                 eventContext(42L, "requester")
         );
+    }
+
+    @Test
+    void cancelShouldRejectOwnerCancellingInsteadOfRequester() {
+        ExchangeRequest request = ExchangeRequest.builder()
+                .id(12L)
+                .requestedBookId(102L)
+                .offeredBookId(202L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.PENDING)
+                .build();
+
+        when(exchangeRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(request));
+
+        ExchangeForbiddenException exception = assertThrows(
+                ExchangeForbiddenException.class,
+                () -> exchangeService.cancel(12L, new UserPrincipal(55L, "owner"))
+        );
+
+        assertEquals("ONLY_REQUESTER_CAN_CANCEL", exception.getCode());
+        assertEquals("Only requester can cancel.", exception.getMessage());
+        verify(bookServiceClient, never()).makeAvailable(anyLong());
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+        verifyNoInteractions(exchangeOutboxService);
     }
 
     @Test

@@ -145,6 +145,21 @@ class NotificationServiceTest {
     }
 
     @Test
+    void markAsReadShouldHideAnotherUsersNotificationAsNotFound() {
+        when(notificationRepository.findByIdAndUserId(99L, 42L)).thenReturn(Optional.empty());
+
+        NotificationNotFoundException exception = assertThrows(
+                NotificationNotFoundException.class,
+                () -> notificationService.markAsRead(99L, new UserPrincipal(42L, "alice"))
+        );
+
+        assertEquals("NOTIFICATION_NOT_FOUND", exception.getCode());
+        assertEquals("Notification not found.", exception.getMessage());
+        verify(notificationRepository).findByIdAndUserId(99L, 42L);
+        verify(notificationRepository, never()).save(org.mockito.ArgumentMatchers.any(Notification.class));
+    }
+
+    @Test
     void markAllAsReadShouldUpdateUnreadNotificationsOfCurrentUser() {
         // act
         notificationService.markAllAsRead(new UserPrincipal(42L, "alice"));
