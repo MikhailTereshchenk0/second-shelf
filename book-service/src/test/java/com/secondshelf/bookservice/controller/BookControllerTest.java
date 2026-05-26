@@ -11,6 +11,7 @@ import com.secondshelf.bookservice.entity.BookVisibility;
 import com.secondshelf.bookservice.exception.BookAccessDeniedException;
 import com.secondshelf.bookservice.exception.BookNotFoundException;
 import com.secondshelf.bookservice.exception.handler.GlobalExceptionHandler;
+import com.secondshelf.bookservice.observability.CorrelationId;
 import com.secondshelf.bookservice.security.JwtAuthenticationFilter;
 import com.secondshelf.bookservice.security.UserPrincipal;
 import com.secondshelf.bookservice.service.BookService;
@@ -33,6 +34,7 @@ import java.time.LocalDateTime;
 import java.util.Date;
 import java.util.List;
 
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -52,6 +54,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class BookControllerTest {
 
     private static final String JWT_SECRET = "test-secret-test-secret-test-secret-12345678";
+    private static final String UUID_PATTERN =
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
 
     @Autowired
     private MockMvc mockMvc;
@@ -87,6 +91,16 @@ class BookControllerTest {
                 .andExpect(jsonPath("$.content[0].visibility").value("PUBLIC"));
 
         verify(bookService).getPublicCatalog(any(Pageable.class));
+    }
+
+    @Test
+    void publicCatalogShouldGenerateCorrelationIdWhenHeaderIsMissing() throws Exception {
+        when(bookService.getPublicCatalog(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/api/v1/books/public"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(CorrelationId.HEADER_NAME, matchesPattern(UUID_PATTERN)));
     }
 
     @Test
