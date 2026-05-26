@@ -340,7 +340,9 @@ Current exchange workflow in `exchange-service`:
    - duplicate active request with the same book pair is rejected when status
      is `PENDING`, `ACCEPTED`, or `COMPLETION_PENDING`.
 4. The exchange request is stored with status `PENDING`, together with the
-   current title/author snapshots of both books.
+   current title/author snapshots of both books and the requester's username
+   snapshot. The owner's username snapshot is filled later from owner-side
+   actions when available.
    Exchange API responses reuse these persisted snapshots and do not fetch book
    metadata again during response mapping.
 5. Event `exchange.request.created` is recorded in `outbox_events`.

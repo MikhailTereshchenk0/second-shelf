@@ -31,7 +31,7 @@ public class ExchangeController {
 
     @Operation(
             summary = "Create exchange request",
-            description = "Creates a new exchange request where the authenticated user offers one of their books in exchange for a requested public book. Responses include requested/offered book title and author snapshots stored in exchange_requests."
+            description = "Creates a new exchange request where the authenticated user offers one of their books in exchange for a requested public book. Responses include requested/offered book title and author snapshots plus persisted participant username snapshots from exchange_requests when available."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Exchange request created successfully"),
@@ -49,7 +49,7 @@ public class ExchangeController {
 
     @Operation(
             summary = "Get my outgoing exchange requests",
-            description = "Returns paginated list of exchange requests created by the authenticated user, including stored requested/offered book title and author snapshots"
+            description = "Returns paginated list of exchange requests created by the authenticated user, including stored requested/offered book title and author snapshots and persisted requester/owner username snapshots when available"
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Outgoing exchange requests returned"),
@@ -64,7 +64,7 @@ public class ExchangeController {
 
     @Operation(
             summary = "Get my incoming exchange requests",
-            description = "Returns paginated list of exchange requests received for books owned by the authenticated user, including stored requested/offered book title and author snapshots"
+            description = "Returns paginated list of exchange requests received for books owned by the authenticated user, including stored requested/offered book title and author snapshots and persisted requester/owner username snapshots when available"
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Incoming exchange requests returned"),
@@ -79,7 +79,7 @@ public class ExchangeController {
 
     @Operation(
             summary = "Accept exchange request",
-            description = "Accepts an incoming exchange request and returns the exchange with stored requested/offered book title and author snapshots"
+            description = "Accepts an incoming exchange request and returns the exchange with stored requested/offered book title and author snapshots plus participant username snapshots"
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Exchange request accepted"),
@@ -96,7 +96,7 @@ public class ExchangeController {
 
     @Operation(
             summary = "Decline exchange request",
-            description = "Declines an incoming exchange request and returns the exchange with stored requested/offered book title and author snapshots"
+            description = "Declines an incoming exchange request and returns the exchange with stored requested/offered book title and author snapshots plus participant username snapshots"
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Exchange request declined"),
@@ -113,7 +113,7 @@ public class ExchangeController {
 
     @Operation(
             summary = "Cancel exchange request",
-            description = "Cancels an exchange request created by the authenticated user and returns the exchange with stored requested/offered book title and author snapshots"
+            description = "Cancels an exchange request created by the authenticated user and returns the exchange with stored requested/offered book title and author snapshots plus participant username snapshots"
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Exchange request cancelled"),
@@ -130,7 +130,7 @@ public class ExchangeController {
 
     @Operation(
             summary = "Complete exchange request",
-            description = "Confirms exchange completion for the authenticated participant. The exchange becomes completed only after both participants confirm it. Responses include stored requested/offered book title and author snapshots."
+            description = "Confirms exchange completion for the authenticated participant. The exchange becomes completed only after both participants confirm it. Responses include stored requested/offered book title and author snapshots plus participant username snapshots."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Exchange request completed"),

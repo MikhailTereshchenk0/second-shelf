@@ -49,6 +49,12 @@ public class ExchangeRequest {
     @Column(name = "requester_id", nullable = false)
     private Long requesterId; // кто инициировал обмен
 
+    @Column(name = "requester_username_snapshot", length = 100)
+    private String requesterUsernameSnapshot;
+
+    @Column(name = "owner_username_snapshot", length = 100)
+    private String ownerUsernameSnapshot;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private ExchangeStatus status;

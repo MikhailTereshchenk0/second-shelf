@@ -18,6 +18,8 @@ public class ExchangeResponse {
     private String offeredBookAuthor;
     private Long ownerId;
     private Long requesterId;
+    private String ownerUsernameSnapshot;
+    private String requesterUsernameSnapshot;
     private ExchangeStatus status;
     private String message;
     private LocalDateTime ownerCompletionConfirmedAt;

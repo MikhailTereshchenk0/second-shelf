@@ -79,6 +79,7 @@ class ExchangeControllerTest {
                 .offeredBookAuthor("Frank Herbert")
                 .ownerId(55L)
                 .requesterId(42L)
+                .requesterUsernameSnapshot("alice")
                 .status(ExchangeStatus.PENDING)
                 .message("Let's exchange")
                 .createdAt(LocalDateTime.now())
@@ -103,6 +104,8 @@ class ExchangeControllerTest {
                 .andExpect(jsonPath("$.offeredBookTitle").value("Dune"))
                 .andExpect(jsonPath("$.offeredBookAuthor").value("Frank Herbert"))
                 .andExpect(jsonPath("$.requesterId").value(42))
+                .andExpect(jsonPath("$.requesterUsernameSnapshot").value("alice"))
+                .andExpect(jsonPath("$.ownerUsernameSnapshot").isEmpty())
                 .andExpect(jsonPath("$.status").value("PENDING"));
 
         verify(exchangeService).create(any(CreateExchangeRequest.class), eq(new UserPrincipal(42L, "alice")));
@@ -189,6 +192,8 @@ class ExchangeControllerTest {
                 .offeredBookAuthor("William Gibson")
                 .ownerId(55L)
                 .requesterId(42L)
+                .ownerUsernameSnapshot("owner")
+                .requesterUsernameSnapshot("alice")
                 .status(ExchangeStatus.PENDING)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
@@ -203,6 +208,8 @@ class ExchangeControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].id").value(2))
                 .andExpect(jsonPath("$.content[0].requesterId").value(42))
+                .andExpect(jsonPath("$.content[0].ownerUsernameSnapshot").value("owner"))
+                .andExpect(jsonPath("$.content[0].requesterUsernameSnapshot").value("alice"))
                 .andExpect(jsonPath("$.content[0].requestedBookTitle").value("The Dispossessed"))
                 .andExpect(jsonPath("$.content[0].offeredBookAuthor").value("William Gibson"))
                 .andExpect(jsonPath("$.content[0].status").value("PENDING"));
@@ -222,6 +229,8 @@ class ExchangeControllerTest {
                 .offeredBookAuthor("Neal Stephenson")
                 .ownerId(55L)
                 .requesterId(42L)
+                .ownerUsernameSnapshot("owner")
+                .requesterUsernameSnapshot("alice")
                 .status(ExchangeStatus.PENDING)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
@@ -236,6 +245,8 @@ class ExchangeControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].id").value(3))
                 .andExpect(jsonPath("$.content[0].ownerId").value(55))
+                .andExpect(jsonPath("$.content[0].ownerUsernameSnapshot").value("owner"))
+                .andExpect(jsonPath("$.content[0].requesterUsernameSnapshot").value("alice"))
                 .andExpect(jsonPath("$.content[0].requestedBookAuthor").value("Dan Simmons"))
                 .andExpect(jsonPath("$.content[0].offeredBookTitle").value("Snow Crash"))
                 .andExpect(jsonPath("$.content[0].status").value("PENDING"));
@@ -255,6 +266,7 @@ class ExchangeControllerTest {
                 .offeredBookAuthor("Frank Herbert")
                 .ownerId(55L)
                 .requesterId(42L)
+                .ownerUsernameSnapshot("owner")
                 .status(ExchangeStatus.ACCEPTED)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
@@ -269,6 +281,7 @@ class ExchangeControllerTest {
                 .andExpect(jsonPath("$.id").value(10))
                 .andExpect(jsonPath("$.requestedBookTitle").value("The Left Hand of Darkness"))
                 .andExpect(jsonPath("$.offeredBookAuthor").value("Frank Herbert"))
+                .andExpect(jsonPath("$.ownerUsernameSnapshot").value("owner"))
                 .andExpect(jsonPath("$.status").value("ACCEPTED"));
 
         verify(exchangeService).accept(10L, new UserPrincipal(55L, "owner"));
