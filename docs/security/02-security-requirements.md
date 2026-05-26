@@ -49,7 +49,7 @@
 | Secret manager | Хранение и ротация `JWT_SECRET`, `AUTH_REFRESH_TOKEN_PEPPER`, `INTERNAL_TOKEN`, DB/RabbitMQ credentials вне git |
 | Distributed rate limiting | Для нескольких инстансов нужен limiter на gateway/ingress/WAF или shared backend вроде Redis |
 | Vulnerability scanning | Dependency scan, image scan и base-image monitoring в CI/CD или security pipeline |
-| Management endpoints | Swagger, OpenAPI, Actuator, metrics и RabbitMQ UI должны быть доступны только admin контуру |
+| Management endpoints | Swagger/OpenAPI, metrics, extended actuator groups и RabbitMQ UI должны быть доступны только admin контуру; public health/info endpoints допускаются без деталей |
 | Time synchronization | Единый источник времени для токенов, audit logs, correlation и incident response |
 
 ## 3. Требуется как organizational process

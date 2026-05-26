@@ -26,7 +26,8 @@ databases. Для настоящего production можно завести от
 - CORS задается через `FRONTEND_ALLOWED_ORIGINS`;
 - TLS завершается на ingress/reverse proxy или gateway-facing инфраструктуре;
 - direct service ports, PostgreSQL, RabbitMQ AMQP и RabbitMQ Management UI не публикуются наружу;
-- `/internal/**`, Swagger, OpenAPI, Actuator и metrics закрываются network policy, firewall, VPN или IP allowlist.
+- `/internal/**`, Swagger, OpenAPI, metrics и extended actuator endpoints закрываются network policy, firewall, VPN или IP allowlist;
+- public health/info endpoints могут оставаться доступными без JWT, но только без раскрытия деталей (`show-details: never`).
 
 ## Критичные параметры
 
@@ -143,7 +144,8 @@ Non-local profiles содержат startup validation, которая отбр�
 - разделять production, staging и test secrets;
 - не хранить реальные secrets в `.env`, git, images или публичных artifacts;
 - использовать разные учетные записи DB/RabbitMQ по средам и, по возможности, по сервисам;
-- закрыть Swagger, Actuator, metrics и RabbitMQ UI внешним ingress, VPN или IP allowlist;
+- закрыть Swagger/OpenAPI, metrics, extended actuator endpoints и RabbitMQ UI внешним ingress, VPN или IP allowlist;
+- отдельно проверить, что public health/info endpoints не раскрывают лишние детали.
 - фиксировать изменения конфигурации в change management;
 - регулярно проверять restore, incident response и secret rotation procedures;
 - проверять, что health endpoints не раскрывают лишние детали.

@@ -21,7 +21,8 @@
 | `user-service` чтение профиля | `/api/v1/users/{id}`, `/api/v1/users/by-username` | Любой аутентифицированный пользователь | Bearer JWT | Email и профиль видимы после аутентификации |
 | `user-service` изменение профиля | `/api/v1/users/{id}` | Только владелец профиля | `@PreAuthorize("#id == principal.userId")` | Прямой owner-check на уровне метода |
 | `user-service` администрирование | `/api/v1/admin/users/{id}/roles`, `/block`, `/unblock` | Только пользователь с `ROLE_ADMIN` | `hasRole("ADMIN")` | Управление ролями и доступностью учетной записи |
-| `user-service` внутренние API | `/internal/users`, `/internal/users/{id}/claims`, `/internal/auth/authenticate` | `auth-service` и доверенные сервисы с `X-Internal-Token` | `INTERNAL_SERVICE` authority | Эндпоинты скрыты из Swagger через `@Hidden` |
+| `user-service` публичная проекция профиля | `/api/v1/users/{id}`, `/api/v1/users/by-username` | Любой аутентифицированный пользователь | Bearer JWT | Возвращается public projection без email, firstName, lastName, roles и enabled |
+| `user-service` собственный профиль | `/api/v1/users/me` | Только текущий аутентифицированный пользователь | Bearer JWT | Возвращает private profile текущего пользователя, включая email, firstName, lastName, roles, enabled и createdAt |
 | `book-service` публичный каталог | `/api/v1/books/public` | Анонимный клиент | `permitAll` | Возвращаются только книги `PUBLIC` со статусом `AVAILABLE` |
 | `book-service` мои книги | `/api/v1/books/my`, `POST /api/v1/books` | Аутентифицированный владелец | Bearer JWT | `ownerId` берется из JWT |
 | `book-service` операции над книгой | `PATCH /api/v1/books/{id}`, `DELETE`, `PUT /publish`, `PUT /hide` | Только владелец конкретной книги | Owner-based authorization в `BookServiceImpl` | Невладелец получает отказ, а часть сценариев блокируется по состоянию книги; перевод в `EXCHANGED` выполняется только через internal exchange workflow |
@@ -32,9 +33,13 @@
 | `exchange-service` принятие / отклонение | `POST /api/v1/exchanges/{id}/accept`, `/decline` | Только владелец запрошенной книги | Проверка `ownerId` | Невладелец получает `403` |
 | `exchange-service` отмена | `POST /api/v1/exchanges/{id}/cancel` | Только инициатор запроса | Проверка `requesterId` | После начала подтверждения завершения отмена блокируется |
 | `exchange-service` завершение | `POST /api/v1/exchanges/{id}/complete` | Только участники обмена | Проверка `isParticipant` | Требуются подтверждения обеих сторон |
+| `exchange-service` admin repair | `/api/v1/admin/exchanges/{id}/repair` | Только пользователь с `ROLE_ADMIN` | `hasRole("ADMIN")` | Используется для ручного восстановления `REPAIR_REQUIRED` exchange после distributed failure |
+| `exchange-service` admin outbox | `/api/v1/admin/outbox/terminal-failed`, `/api/v1/admin/outbox/{eventId}/retry` | Только пользователь с `ROLE_ADMIN` | `hasRole("ADMIN")` | Используется для просмотра и повторной публикации terminal failed outbox events |
+| `notification-service` admin DLQ | `/api/v1/admin/notifications/dlq/redrive` | Только пользователь с `ROLE_ADMIN` | `hasRole("ADMIN")` | Используется для операционного redrive сообщений из DLQ |
 | `notification-service` уведомления | `/api/v1/notifications`, `/unread-count`, `/{id}/read`, `/read-all` | Только пользователь-владелец уведомлений | Bearer JWT + фильтрация по `userId` | Чтение и изменение доступны только по своему `userId` |
-| Технические endpoints | `/actuator/health`, `/actuator/info`, Swagger, OpenAPI | Анонимный клиент | `permitAll` | Во всех сервисах открыты без JWT |
-| Технические endpoints с метриками | `/actuator/metrics`, где endpoint включен в exposure | Анонимный клиент на уровне приложения | `permitAll` | В production должны дополнительно ограничиваться на уровне ingress/firewall/admin network |
+| Health/info endpoints | `/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness`, `/actuator/info` | Анонимный клиент | `permitAll` | Health details скрыты через `show-details: never`; в production дополнительно ограничиваются ingress/firewall при необходимости |
+| Swagger / OpenAPI | `/swagger-ui.html`, `/swagger-ui/**`, `/v3/api-docs/**` | Local/dev пользователь | `permitAll` только при `app.security.public-docs-enabled=true`; иначе `denyAll` | В non-local профилях публичная документация API отключена по умолчанию |
+| Metrics / extended actuator endpoints | `/actuator/metrics`, `/actuator/metrics/**`, дополнительные `/actuator/health/**` | Только пользователь с `ROLE_ADMIN` | `hasRole("ADMIN")` | В production должны дополнительно закрываться через ingress/firewall/admin network |
 
 ## Отдельные замечания
 
