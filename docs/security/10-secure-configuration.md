@@ -16,6 +16,10 @@ staging или production среду.
 `user-service`, `book-service`, `exchange-service`, `notification-service`, PostgreSQL и RabbitMQ остаются на
 internal Docker network.
 
+В текущем production-like compose используется один PostgreSQL role (`PROD_POSTGRES_USER`) для всех service
+databases. Для настоящего production можно завести отдельных DB users и grants на каждый сервис, но это выходит за
+рамки данного стенда и требует отдельной DBA-схемы миграций прав.
+
 Требования:
 
 - frontend вызывает только gateway routes;
@@ -31,7 +35,7 @@ internal Docker network.
 | `JWT_SECRET` | `auth-service`, `user-service`, `book-service`, `exchange-service`, `notification-service` | хранить только в secret manager, задавать длинное случайное значение, обеспечивать ротацию и аудит доступа |
 | `AUTH_REFRESH_TOKEN_PEPPER` | `auth-service` | хранить отдельно от БД, задавать вне `local` profile, ротировать по процедуре incident response |
 | `INTERNAL_TOKEN` | `auth-service`, `user-service`, `book-service`, `exchange-service` | хранить в secret manager, регулярно ротировать, не использовать в logs или Swagger examples |
-| `DB_USERNAME` / `DB_PASSWORD` | все domain services | использовать отдельные значения по средам; в production желательно отдельные DB users per service |
+| `DB_USERNAME` / `DB_PASSWORD` | все domain services | в production-like compose берутся из `PROD_POSTGRES_USER` / `PROD_POSTGRES_PASSWORD`; для настоящего production можно выделить отдельных DB users per service и grants |
 | `RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD` | `exchange-service`, `notification-service` | не использовать `guest/guest`; ограничить доступ к vhost, exchange, queue и DLQ |
 | `SEED_ADMIN_USERNAME`, `SEED_ADMIN_PASSWORD`, `SEED_ADMIN_EMAIL` | `user-service` | задать безопасные значения, задокументировать bootstrap и отключить/ограничить seed после инициализации среды |
 | `FRONTEND_ALLOWED_ORIGINS` | `api-gateway` | указывать только доверенные frontend origins; не использовать wildcard с credentials |
