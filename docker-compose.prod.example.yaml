@@ -1,0 +1,202 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${PROD_POSTGRES_USER:?PROD_POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${PROD_POSTGRES_PASSWORD:?PROD_POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${PROD_POSTGRES_DB:?PROD_POSTGRES_DB is required}
+    volumes:
+      - prod_pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${PROD_RABBITMQ_USERNAME:?PROD_RABBITMQ_USERNAME is required}
+      RABBITMQ_DEFAULT_PASS: ${PROD_RABBITMQ_PASSWORD:?PROD_RABBITMQ_PASSWORD is required}
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  user-service:
+    build:
+      context: .
+      dockerfile: user-service/Dockerfile
+    environment:
+      USER_SERVICE_PORT: 8081
+      SPRING_PROFILES_ACTIVE: prod
+      DB_HOST: postgres
+      POSTGRES_PORT: 5432
+      DB_USERNAME: ${PROD_DB_USERNAME:?PROD_DB_USERNAME is required}
+      DB_PASSWORD: ${PROD_DB_PASSWORD:?PROD_DB_PASSWORD is required}
+      USER_DB_NAME: users_db
+      INTERNAL_TOKEN: ${PROD_INTERNAL_TOKEN:?PROD_INTERNAL_TOKEN is required}
+      JWT_SECRET: ${PROD_JWT_SECRET:?PROD_JWT_SECRET is required}
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: auth-service/Dockerfile
+    environment:
+      AUTH_SERVICE_PORT: 8080
+      SPRING_PROFILES_ACTIVE: prod
+      DB_HOST: postgres
+      POSTGRES_PORT: 5432
+      DB_USERNAME: ${PROD_DB_USERNAME:?PROD_DB_USERNAME is required}
+      DB_PASSWORD: ${PROD_DB_PASSWORD:?PROD_DB_PASSWORD is required}
+      AUTH_DB_NAME: auth_db
+      INTERNAL_TOKEN: ${PROD_INTERNAL_TOKEN:?PROD_INTERNAL_TOKEN is required}
+      JWT_SECRET: ${PROD_JWT_SECRET:?PROD_JWT_SECRET is required}
+      JWT_ACCESS_EXPIRATION_MS: ${PROD_JWT_ACCESS_EXPIRATION_MS:?PROD_JWT_ACCESS_EXPIRATION_MS is required}
+      JWT_REFRESH_EXPIRATION_MS: ${PROD_JWT_REFRESH_EXPIRATION_MS:?PROD_JWT_REFRESH_EXPIRATION_MS is required}
+      AUTH_REFRESH_TOKEN_PEPPER: ${PROD_AUTH_REFRESH_TOKEN_PEPPER:?PROD_AUTH_REFRESH_TOKEN_PEPPER is required}
+      USER_SERVICE_BASE_URL: http://user-service:8081
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+
+  book-service:
+    build:
+      context: .
+      dockerfile: book-service/Dockerfile
+    environment:
+      BOOK_SERVICE_PORT: 8082
+      SPRING_PROFILES_ACTIVE: prod
+      DB_HOST: postgres
+      POSTGRES_PORT: 5432
+      DB_USERNAME: ${PROD_DB_USERNAME:?PROD_DB_USERNAME is required}
+      DB_PASSWORD: ${PROD_DB_PASSWORD:?PROD_DB_PASSWORD is required}
+      BOOK_DB_NAME: books_db
+      INTERNAL_TOKEN: ${PROD_INTERNAL_TOKEN:?PROD_INTERNAL_TOKEN is required}
+      JWT_SECRET: ${PROD_JWT_SECRET:?PROD_JWT_SECRET is required}
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  exchange-service:
+    build:
+      context: .
+      dockerfile: exchange-service/Dockerfile
+    environment:
+      EXCHANGE_SERVICE_PORT: 8083
+      SPRING_PROFILES_ACTIVE: prod
+      DB_HOST: postgres
+      POSTGRES_PORT: 5432
+      DB_USERNAME: ${PROD_DB_USERNAME:?PROD_DB_USERNAME is required}
+      DB_PASSWORD: ${PROD_DB_PASSWORD:?PROD_DB_PASSWORD is required}
+      EXCHANGE_DB_NAME: exchange_db
+      INTERNAL_TOKEN: ${PROD_INTERNAL_TOKEN:?PROD_INTERNAL_TOKEN is required}
+      JWT_SECRET: ${PROD_JWT_SECRET:?PROD_JWT_SECRET is required}
+      BOOK_SERVICE_BASE_URL: http://book-service:8082
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${PROD_RABBITMQ_USERNAME:?PROD_RABBITMQ_USERNAME is required}
+      RABBITMQ_PASSWORD: ${PROD_RABBITMQ_PASSWORD:?PROD_RABBITMQ_PASSWORD is required}
+      EXCHANGE_EVENTS_EXCHANGE: ${PROD_EXCHANGE_EVENTS_EXCHANGE:?PROD_EXCHANGE_EVENTS_EXCHANGE is required}
+      EXCHANGE_EVENTS_QUEUE: ${PROD_EXCHANGE_EVENTS_QUEUE:?PROD_EXCHANGE_EVENTS_QUEUE is required}
+      EXCHANGE_EVENTS_ROUTING_KEY_PATTERN: ${PROD_EXCHANGE_EVENTS_ROUTING_KEY_PATTERN:?PROD_EXCHANGE_EVENTS_ROUTING_KEY_PATTERN is required}
+      EXCHANGE_EVENTS_DLQ_EXCHANGE: ${PROD_EXCHANGE_EVENTS_DLQ_EXCHANGE:?PROD_EXCHANGE_EVENTS_DLQ_EXCHANGE is required}
+      EXCHANGE_EVENTS_DLQ_QUEUE: ${PROD_EXCHANGE_EVENTS_DLQ_QUEUE:?PROD_EXCHANGE_EVENTS_DLQ_QUEUE is required}
+      EXCHANGE_EVENTS_DLQ_ROUTING_KEY: ${PROD_EXCHANGE_EVENTS_DLQ_ROUTING_KEY:?PROD_EXCHANGE_EVENTS_DLQ_ROUTING_KEY is required}
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      book-service:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
+    environment:
+      NOTIFICATION_SERVICE_PORT: 8084
+      SPRING_PROFILES_ACTIVE: prod
+      DB_HOST: postgres
+      POSTGRES_PORT: 5432
+      DB_USERNAME: ${PROD_DB_USERNAME:?PROD_DB_USERNAME is required}
+      DB_PASSWORD: ${PROD_DB_PASSWORD:?PROD_DB_PASSWORD is required}
+      NOTIFICATION_DB_NAME: notification_db
+      JWT_SECRET: ${PROD_JWT_SECRET:?PROD_JWT_SECRET is required}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${PROD_RABBITMQ_USERNAME:?PROD_RABBITMQ_USERNAME is required}
+      RABBITMQ_PASSWORD: ${PROD_RABBITMQ_PASSWORD:?PROD_RABBITMQ_PASSWORD is required}
+      EXCHANGE_EVENTS_EXCHANGE: ${PROD_EXCHANGE_EVENTS_EXCHANGE:?PROD_EXCHANGE_EVENTS_EXCHANGE is required}
+      EXCHANGE_EVENTS_QUEUE: ${PROD_EXCHANGE_EVENTS_QUEUE:?PROD_EXCHANGE_EVENTS_QUEUE is required}
+      EXCHANGE_EVENTS_ROUTING_KEY_PATTERN: ${PROD_EXCHANGE_EVENTS_ROUTING_KEY_PATTERN:?PROD_EXCHANGE_EVENTS_ROUTING_KEY_PATTERN is required}
+      EXCHANGE_EVENTS_DLQ_EXCHANGE: ${PROD_EXCHANGE_EVENTS_DLQ_EXCHANGE:?PROD_EXCHANGE_EVENTS_DLQ_EXCHANGE is required}
+      EXCHANGE_EVENTS_DLQ_QUEUE: ${PROD_EXCHANGE_EVENTS_DLQ_QUEUE:?PROD_EXCHANGE_EVENTS_DLQ_QUEUE is required}
+      EXCHANGE_EVENTS_DLQ_ROUTING_KEY: ${PROD_EXCHANGE_EVENTS_DLQ_ROUTING_KEY:?PROD_EXCHANGE_EVENTS_DLQ_ROUTING_KEY is required}
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    ports:
+      - "${PROD_API_GATEWAY_PORT:?PROD_API_GATEWAY_PORT is required}:8088"
+    environment:
+      API_GATEWAY_PORT: 8088
+      SPRING_PROFILES_ACTIVE: prod
+      FRONTEND_ALLOWED_ORIGINS: ${PROD_FRONTEND_ALLOWED_ORIGINS:?PROD_FRONTEND_ALLOWED_ORIGINS is required}
+      AUTH_SERVICE_URI: http://auth-service:8080
+      USER_SERVICE_URI: http://user-service:8081
+      BOOK_SERVICE_URI: http://book-service:8082
+      EXCHANGE_SERVICE_URI: http://exchange-service:8083
+      NOTIFICATION_SERVICE_URI: http://notification-service:8084
+    networks:
+      - public
+      - internal
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      book-service:
+        condition: service_healthy
+      exchange-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+
+networks:
+  public:
+    driver: bridge
+  internal:
+    driver: bridge
+    internal: true
+
+volumes:
+  prod_pgdata:

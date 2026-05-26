@@ -516,14 +516,18 @@ Current exchange-derived notifications:
 - `POST /api/v1/notifications/{id}/read`
 - `POST /api/v1/notifications/read-all`
 
-## Local Startup With Docker Compose
+## Docker Compose Startup
 
 ### Prerequisites
 
 - Docker
 - Docker Compose
 
-### Start
+### Local Compose
+
+`docker-compose.yaml` is intentionally convenient for local development. It
+publishes the gateway, individual service ports, PostgreSQL, RabbitMQ AMQP, and
+RabbitMQ Management UI so the stack can be inspected and debugged directly.
 
 1. Create a local env file:
 
@@ -575,12 +579,35 @@ Notes for the current Compose setup:
 | RabbitMQ AMQP | `localhost:5672` |
 | RabbitMQ Management UI | `http://localhost:15672` |
 
+### Production-Like Compose
+
+`docker-compose.prod.example.yaml` models external exposure behind the gateway.
+It publishes only `api-gateway`; PostgreSQL, RabbitMQ, and domain services are
+reachable only on the internal Docker network. The gateway is attached to both
+`public` and `internal` networks, while services, PostgreSQL, and RabbitMQ stay
+on `internal`.
+
+Use real environment values from a secure source. `.env.prod.example` contains
+placeholders only and should not be used as-is:
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.example.yaml up --build
+```
+
+Production-like compose uses `SPRING_PROFILES_ACTIVE=prod` for every service.
+Secrets are required through environment variables and the file does not provide
+demo defaults. Direct service access is intentionally unavailable in this mode;
+clients should call the gateway only.
+
 ## Environment Variables
 
 `.env.example` contains values for local development. Some variables such as
 `DB_HOST`, `RABBITMQ_HOST`, `USER_SERVICE_BASE_URL`, and `BOOK_SERVICE_BASE_URL`
 are mainly useful when services are started directly from the IDE or terminal
 outside Compose.
+
+`.env.prod.example` is a placeholder template for the production-like compose
+file. Keep real production-like values outside source control.
 
 The current Compose stack forwards the shared RabbitMQ topology variables.
 Dead-letter and outbox reliability settings are supported by the service
