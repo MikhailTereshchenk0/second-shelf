@@ -18,7 +18,7 @@ public class OpenApiConfig {
                 .info(new Info()
                         .title("Second Shelf Book API")
                         .version("v1")
-                        .description("Book catalog and owner book management API"))
+                        .description("Book catalog and owner book management API. The public catalog exposes only PUBLIC and AVAILABLE books, while owner-side update/delete/publish/hide operations are limited to AVAILABLE books."))
                 .components(new Components()
                         .addSecuritySchemes("bearerAuth", new SecurityScheme()
                                 .type(SecurityScheme.Type.HTTP)

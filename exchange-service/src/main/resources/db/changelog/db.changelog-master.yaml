@@ -9,3 +9,5 @@ databaseChangeLog:
       file: db/changelog/changes/004-add-completion-confirmation-columns.yaml
   - include:
       file: db/changelog/changes/005-add-book-snapshot-columns.yaml
+  - include:
+      file: db/changelog/changes/006-add-participant-username-snapshots.yaml

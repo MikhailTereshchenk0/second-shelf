@@ -137,6 +137,7 @@ flowchart LR
 
 - JWT для пользовательских API;
 - refresh-токены и их ротация;
+- in-memory rate limiting для `POST /api/auth/login`, `POST /api/auth/register` и `POST /api/auth/refresh`;
 - хэширование паролей;
 - `X-Internal-Token` для внутренних API;
 - owner-based authorization;
@@ -158,5 +159,11 @@ flowchart LR
 - EDR/антивирус;
 - синхронизация времени;
 - secret manager.
+
+Для rate limiting это особенно важно: встроенный limiter в `auth-service`
+служит как defense-in-depth слой для публичных auth endpoint'ов, но в
+distributed production основной контроль лучше выносить на API gateway,
+ingress, WAF или shared-хранилище вроде Redis, чтобы лимиты были
+согласованными между инстансами.
 
 Без этих мер прикладная архитектура не покрывает весь объем требований для системы класса `3-ИН`.

@@ -98,9 +98,15 @@ class ExchangeServiceTest {
         assertNotNull(response);
         assertEquals(1L, response.getId());
         assertEquals(100L, response.getRequestedBookId());
+        assertEquals("The Left Hand of Darkness", response.getRequestedBookTitle());
+        assertEquals("Ursula K. Le Guin", response.getRequestedBookAuthor());
         assertEquals(200L, response.getOfferedBookId());
+        assertEquals("Dune", response.getOfferedBookTitle());
+        assertEquals("Frank Herbert", response.getOfferedBookAuthor());
         assertEquals(55L, response.getOwnerId());
         assertEquals(42L, response.getRequesterId());
+        assertNull(response.getOwnerUsernameSnapshot());
+        assertEquals("alice", response.getRequesterUsernameSnapshot());
         assertEquals(ExchangeStatus.PENDING, response.getStatus());
         assertEquals("I would like to exchange this book.", response.getMessage());
 
@@ -115,6 +121,8 @@ class ExchangeServiceTest {
         assertEquals("Frank Herbert", savedRequest.getOfferedBookAuthor());
         assertEquals(55L, savedRequest.getOwnerId());
         assertEquals(42L, savedRequest.getRequesterId());
+        assertNull(savedRequest.getOwnerUsernameSnapshot());
+        assertEquals("alice", savedRequest.getRequesterUsernameSnapshot());
         assertEquals(ExchangeStatus.PENDING, savedRequest.getStatus());
         assertEquals("I would like to exchange this book.", savedRequest.getMessage());
 
@@ -431,6 +439,8 @@ class ExchangeServiceTest {
         // assert
         assertNotNull(response);
         assertEquals(ExchangeStatus.ACCEPTED, response.getStatus());
+        assertEquals("owner", response.getOwnerUsernameSnapshot());
+        assertNull(response.getRequesterUsernameSnapshot());
 
         verify(exchangeRepository).lockAllActiveByBookIds(
                 List.of(100L, 200L),
@@ -441,6 +451,8 @@ class ExchangeServiceTest {
         verify(exchangeRepository, never()).saveAll(anyList());
         verify(exchangeRepository).save(request);
         assertEquals(ExchangeStatus.ACCEPTED, request.getStatus());
+        assertEquals("owner", request.getOwnerUsernameSnapshot());
+        assertNull(request.getRequesterUsernameSnapshot());
         verify(exchangeOutboxService).recordExchangeEvent(
                 ExchangeEventType.EXCHANGE_REQUEST_ACCEPTED,
                 request,
@@ -718,10 +730,13 @@ class ExchangeServiceTest {
 
         // assert
         assertEquals(ExchangeStatus.COMPLETION_PENDING, response.getStatus());
+        assertEquals("owner", response.getOwnerUsernameSnapshot());
+        assertNull(response.getRequesterUsernameSnapshot());
         assertNotNull(response.getOwnerCompletionConfirmedAt());
         assertNull(response.getRequesterCompletionConfirmedAt());
         verify(bookServiceClient, never()).markExchanged(anyLong());
         verify(exchangeRepository).save(request);
+        assertEquals("owner", request.getOwnerUsernameSnapshot());
         verify(exchangeOutboxService).recordExchangeEvent(
                 ExchangeEventType.EXCHANGE_REQUEST_COMPLETION_CONFIRMED,
                 request,
@@ -735,8 +750,15 @@ class ExchangeServiceTest {
         ExchangeRequest request = ExchangeRequest.builder()
                 .id(20L)
                 .requestedBookId(200L)
+                .requestedBookTitle("The Dispossessed")
+                .requestedBookAuthor("Ursula K. Le Guin")
+                .offeredBookId(300L)
+                .offeredBookTitle("Neuromancer")
+                .offeredBookAuthor("William Gibson")
                 .ownerId(55L)
                 .requesterId(42L)
+                .ownerUsernameSnapshot("owner")
+                .requesterUsernameSnapshot("alice")
                 .status(ExchangeStatus.PENDING)
                 .build();
 
@@ -750,6 +772,40 @@ class ExchangeServiceTest {
         assertEquals(1, result.getTotalElements());
         assertEquals(20L, result.getContent().get(0).getId());
         assertEquals(42L, result.getContent().get(0).getRequesterId());
+        assertEquals("owner", result.getContent().get(0).getOwnerUsernameSnapshot());
+        assertEquals("alice", result.getContent().get(0).getRequesterUsernameSnapshot());
+        assertEquals("The Dispossessed", result.getContent().get(0).getRequestedBookTitle());
+        assertEquals("William Gibson", result.getContent().get(0).getOfferedBookAuthor());
+    }
+
+    @Test
+    void myIncomingShouldMapOldRowsWithNullParticipantSnapshots() {
+        // arrange
+        ExchangeRequest request = ExchangeRequest.builder()
+                .id(21L)
+                .requestedBookId(201L)
+                .requestedBookTitle("A Fire Upon the Deep")
+                .requestedBookAuthor("Vernor Vinge")
+                .offeredBookId(301L)
+                .offeredBookTitle("Use of Weapons")
+                .offeredBookAuthor("Iain M. Banks")
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.PENDING)
+                .build();
+
+        when(exchangeRepository.findAllByOwnerId(55L, PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(List.of(request)));
+
+        // act
+        var result = exchangeService.myIncoming(new UserPrincipal(55L, "owner"), PageRequest.of(0, 20));
+
+        // assert
+        assertEquals(1, result.getTotalElements());
+        assertEquals(21L, result.getContent().get(0).getId());
+        assertNull(result.getContent().get(0).getOwnerUsernameSnapshot());
+        assertNull(result.getContent().get(0).getRequesterUsernameSnapshot());
+        assertEquals("A Fire Upon the Deep", result.getContent().get(0).getRequestedBookTitle());
     }
 
     @Test
@@ -774,6 +830,8 @@ class ExchangeServiceTest {
         // assert
         assertNotNull(response);
         assertEquals(ExchangeStatus.COMPLETED, response.getStatus());
+        assertNull(response.getOwnerUsernameSnapshot());
+        assertEquals("requester", response.getRequesterUsernameSnapshot());
         assertNotNull(response.getOwnerCompletionConfirmedAt());
         assertNotNull(response.getRequesterCompletionConfirmedAt());
 
@@ -781,6 +839,7 @@ class ExchangeServiceTest {
         verify(bookServiceClient).markExchanged(200L);
         verify(exchangeRepository).save(request);
         assertEquals(ExchangeStatus.COMPLETED, request.getStatus());
+        assertEquals("requester", request.getRequesterUsernameSnapshot());
         assertNotNull(request.getRequesterCompletionConfirmedAt());
         verify(exchangeOutboxService).recordExchangeEvent(
                 ExchangeEventType.EXCHANGE_REQUEST_COMPLETED,

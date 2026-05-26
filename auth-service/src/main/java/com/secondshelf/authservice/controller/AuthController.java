@@ -5,12 +5,14 @@ import com.secondshelf.authservice.dto.LoginRequest;
 import com.secondshelf.authservice.dto.RefreshRequest;
 import com.secondshelf.authservice.dto.RegisterRequest;
 import com.secondshelf.authservice.dto.TokenPairResponse;
+import com.secondshelf.authservice.ratelimit.AuthRateLimitService;
 import com.secondshelf.authservice.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -27,6 +29,7 @@ import java.util.List;
 public class AuthController {
 
     private final AuthService authService;
+    private final AuthRateLimitService authRateLimitService;
 
     @Operation(
             summary = "Ping auth service",
@@ -47,10 +50,12 @@ public class AuthController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Authentication successful"),
             @ApiResponse(responseCode = "400", description = "Invalid request payload"),
-            @ApiResponse(responseCode = "401", description = "Invalid credentials")
+            @ApiResponse(responseCode = "401", description = "Invalid credentials"),
+            @ApiResponse(responseCode = "429", description = "Authentication rate limit exceeded")
     })
     @PostMapping("/login")
-    public TokenPairResponse login(@Valid @RequestBody LoginRequest request) {
+    public TokenPairResponse login(HttpServletRequest httpRequest, @Valid @RequestBody LoginRequest request) {
+        authRateLimitService.checkLogin(httpRequest, request);
         return authService.login(request);
     }
 
@@ -79,10 +84,12 @@ public class AuthController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Registration successful"),
-            @ApiResponse(responseCode = "400", description = "Invalid request payload or duplicated user data")
+            @ApiResponse(responseCode = "400", description = "Invalid request payload or duplicated user data"),
+            @ApiResponse(responseCode = "429", description = "Authentication rate limit exceeded")
     })
     @PostMapping("/register")
-    public TokenPairResponse register(@Valid @RequestBody RegisterRequest request) {
+    public TokenPairResponse register(HttpServletRequest httpRequest, @Valid @RequestBody RegisterRequest request) {
+        authRateLimitService.checkRegister(httpRequest, request);
         return authService.register(request);
     }
 
@@ -93,10 +100,12 @@ public class AuthController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Tokens refreshed successfully"),
             @ApiResponse(responseCode = "400", description = "Invalid request payload"),
-            @ApiResponse(responseCode = "401", description = "Refresh token is invalid or expired")
+            @ApiResponse(responseCode = "401", description = "Refresh token is invalid or expired"),
+            @ApiResponse(responseCode = "429", description = "Authentication rate limit exceeded")
     })
     @PostMapping("/refresh")
-    public TokenPairResponse refresh(@Valid @RequestBody RefreshRequest request) {
+    public TokenPairResponse refresh(HttpServletRequest httpRequest, @Valid @RequestBody RefreshRequest request) {
+        authRateLimitService.checkRefresh(httpRequest, request);
         return authService.refresh(request);
     }
 

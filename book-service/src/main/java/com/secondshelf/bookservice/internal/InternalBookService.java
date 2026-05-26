@@ -1,10 +1,9 @@
 package com.secondshelf.bookservice.internal;
 
 import com.secondshelf.bookservice.entity.Book;
-import com.secondshelf.bookservice.entity.BookStatus;
 import com.secondshelf.bookservice.exception.BookNotFoundException;
-import com.secondshelf.bookservice.exception.ForbiddenOperationException;
 import com.secondshelf.bookservice.repository.BookRepository;
+import com.secondshelf.bookservice.service.BookLifecyclePolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class InternalBookService {
 
     private final BookRepository bookRepository;
+    private final BookLifecyclePolicy bookLifecyclePolicy;
 
     public Book get(Long bookId) {
         return bookRepository.findById(bookId)
@@ -25,11 +25,9 @@ public class InternalBookService {
         Book b = bookRepository.findByIdForUpdate(bookId)
                 .orElseThrow(() -> new BookNotFoundException(bookId));
 
-        if (b.getStatus() != BookStatus.AVAILABLE) {
-            throw new ForbiddenOperationException("Book must be AVAILABLE to reserve.");
-        }
+        bookLifecyclePolicy.assertCanReserve(b);
 
-        b.setStatus(BookStatus.RESERVED);
+        b.setStatus(com.secondshelf.bookservice.entity.BookStatus.RESERVED);
         return b;
     }
 
@@ -37,11 +35,9 @@ public class InternalBookService {
         Book b = bookRepository.findByIdForUpdate(bookId)
                 .orElseThrow(() -> new BookNotFoundException(bookId));
 
-        if (b.getStatus() != BookStatus.RESERVED) {
-            throw new ForbiddenOperationException("Book must be RESERVED to set AVAILABLE.");
-        }
+        bookLifecyclePolicy.assertCanMakeAvailable(b);
 
-        b.setStatus(BookStatus.AVAILABLE);
+        b.setStatus(com.secondshelf.bookservice.entity.BookStatus.AVAILABLE);
         return b;
     }
 
@@ -49,11 +45,9 @@ public class InternalBookService {
         Book b = bookRepository.findByIdForUpdate(bookId)
                 .orElseThrow(() -> new BookNotFoundException(bookId));
 
-        if (b.getStatus() != BookStatus.RESERVED) {
-            throw new ForbiddenOperationException("Book must be RESERVED to mark as EXCHANGED.");
-        }
+        bookLifecyclePolicy.assertCanMarkExchangedInternally(b);
 
-        b.setStatus(BookStatus.EXCHANGED);
+        b.setStatus(com.secondshelf.bookservice.entity.BookStatus.EXCHANGED);
         b.setVisibility(com.secondshelf.bookservice.entity.BookVisibility.PRIVATE);
         return b;
     }

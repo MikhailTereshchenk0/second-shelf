@@ -39,7 +39,8 @@ Maven root modules:
 - `user-service` owns user profiles, administrator role management, and
   account blocking/unblocking.
 - `book-service` owns the public catalog and owner-side book CRUD and
-  visibility operations.
+  visibility operations for `AVAILABLE` books, while exchange-driven reserve /
+  release / exchanged transitions happen through internal endpoints.
 - `exchange-service` owns the exchange request workflow and coordinates book
   reservation/release/completion through synchronous internal calls to
   `book-service`.
@@ -339,7 +340,11 @@ Current exchange workflow in `exchange-service`:
    - duplicate active request with the same book pair is rejected when status
      is `PENDING`, `ACCEPTED`, or `COMPLETION_PENDING`.
 4. The exchange request is stored with status `PENDING`, together with the
-   current title/author snapshots of both books.
+   current title/author snapshots of both books and the requester's username
+   snapshot. The owner's username snapshot is filled later from owner-side
+   actions when available.
+   Exchange API responses reuse these persisted snapshots and do not fetch book
+   metadata again during response mapping.
 5. Event `exchange.request.created` is recorded in `outbox_events`.
 6. The owner of the requested book can accept or decline the request.
 7. On accept:
@@ -377,14 +382,14 @@ Current exchange workflow in `exchange-service`:
 | Status | Meaning |
 | --- | --- |
 | `AVAILABLE` | The book can participate in exchange operations. |
-| `RESERVED` | The book is locked by an accepted exchange request. |
+| `RESERVED` | The book is locked by an accepted exchange request and remains visible only to the owner in `/my`; normal owner update/delete/publish/hide operations are blocked. |
 | `EXCHANGED` | The book has been exchanged and can no longer be modified through normal owner flows. |
 
 Related visibility states in `book-service`:
 
 | Visibility | Meaning |
 | --- | --- |
-| `PUBLIC` | Visible in the public catalog and allowed for exchange creation. |
+| `PUBLIC` | Visible in the public catalog only when the book status is also `AVAILABLE`; only this combination is eligible for exchange creation and non-owner `getById`. |
 | `PRIVATE` | Hidden from the public catalog. |
 
 ### Exchange Statuses
@@ -501,6 +506,11 @@ configuration; when omitted, the services use the defaults documented below.
 | `JWT_ACCESS_EXPIRATION_MS` | Access token lifetime in milliseconds. |
 | `JWT_REFRESH_EXPIRATION_MS` | Refresh token lifetime in milliseconds. |
 | `AUTH_REFRESH_TOKEN_PEPPER` | Server-side pepper for refresh token HMAC hashing; required outside the `local` Spring profile. |
+| `AUTH_RATE_LIMIT_ENABLED` | Enables in-memory auth endpoint rate limiting in `auth-service`. |
+| `AUTH_RATE_LIMIT_LOGIN_CAPACITY` / `AUTH_RATE_LIMIT_LOGIN_REFILL_TOKENS` / `AUTH_RATE_LIMIT_LOGIN_REFILL_PERIOD` | Token-bucket settings for `POST /api/auth/login`. Local default: `10` requests per `1m` per `username + client IP`. |
+| `AUTH_RATE_LIMIT_REGISTER_CAPACITY` / `AUTH_RATE_LIMIT_REGISTER_REFILL_TOKENS` / `AUTH_RATE_LIMIT_REGISTER_REFILL_PERIOD` | Token-bucket settings for `POST /api/auth/register`. Local default: `5` requests per `1m` per client IP. |
+| `AUTH_RATE_LIMIT_REFRESH_CAPACITY` / `AUTH_RATE_LIMIT_REFRESH_REFILL_TOKENS` / `AUTH_RATE_LIMIT_REFRESH_REFILL_PERIOD` | Token-bucket settings for `POST /api/auth/refresh`. Local default: `30` requests per `1m` per client IP. |
+| `AUTH_RATE_LIMIT_REFRESH_INCLUDE_TOKEN_FINGERPRINT` | When `true`, `POST /api/auth/refresh` rate-limit key also includes a SHA-256 token fingerprint without logging the raw token. |
 
 Registration in `auth-service` and internal user creation in `user-service`
 share the same password policy:
@@ -512,6 +522,12 @@ share the same password policy:
 - at least one special character;
 - no whitespace;
 - must not contain the `username` or the email local-part.
+
+`auth-service` now also applies an in-memory application-level limiter to
+`/api/auth/login`, `/api/auth/register`, and `/api/auth/refresh`. In a
+distributed production setup, the primary limiter should still live at the API
+gateway, ingress, WAF, or a shared backend such as Redis; the app-level limiter
+is intended as a defense-in-depth layer.
 
 ### PostgreSQL
 
@@ -658,8 +674,9 @@ Additional async observability URLs:
   does not use distributed transactions. Reserve/release flows have only
   best-effort compensation, and completion has no cross-service rollback, so
   some failure cases may still require manual repair.
-- The public catalog currently includes `PUBLIC` books with statuses
-  `AVAILABLE` and `RESERVED`, so reserved books remain visible in the catalog.
+- Non-owners can load a single book only when it is both `PUBLIC` and
+  `AVAILABLE`; private, reserved, and exchanged books are intentionally
+  hidden as `404`.
 - Dead-letter handling exists, but there is no automatic DLQ redrive flow or
   retry backoff policy.
 - `notification-service` creates persisted in-app notifications only. There is

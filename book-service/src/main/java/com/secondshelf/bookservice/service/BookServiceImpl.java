@@ -30,6 +30,7 @@ public class BookServiceImpl implements BookService {
     private static final AuditLogger AUDIT_LOGGER = AuditLogger.forClass(BookServiceImpl.class);
 
     private final BookRepository bookRepository;
+    private final BookLifecyclePolicy bookLifecyclePolicy;
 
     @Override
     public BookResponse create(CreateBookRequest request, UserPrincipal principal) {
@@ -72,7 +73,7 @@ public class BookServiceImpl implements BookService {
 
         try {
             Book book = getOwnedBook(bookId, principal);
-            assertNotExchanged(book);
+            bookLifecyclePolicy.assertCanModifyByOwner(book);
 
             if (request.getTitle() != null) book.setTitle(request.getTitle());
             if (request.getAuthor() != null) book.setAuthor(request.getAuthor());
@@ -102,7 +103,7 @@ public class BookServiceImpl implements BookService {
 
         try {
             Book book = getOwnedBook(bookId, principal);
-            assertNotExchanged(book);
+            bookLifecyclePolicy.assertCanDelete(book);
             bookRepository.delete(book);
 
             AUDIT_LOGGER.log(AuditEvent.builder("BOOK_DELETE", AuditOutcome.SUCCESS)
@@ -134,13 +135,8 @@ public class BookServiceImpl implements BookService {
             return toResponse(book);
         }
 
-        // остальные видят только PUBLIC
-        if (book.getVisibility() == BookVisibility.PUBLIC) {
-            return toResponse(book);
-        }
-
-        // приватное скрываем как 404
-        throw new BookNotFoundException(bookId);
+        bookLifecyclePolicy.assertCanBeVisibleInPublicView(book);
+        return toResponse(book);
     }
 
     @Override
@@ -155,7 +151,7 @@ public class BookServiceImpl implements BookService {
     public Page<BookResponse> getPublicCatalog(Pageable pageable) {
         return bookRepository.findAllByVisibilityAndStatusIn(
                         BookVisibility.PUBLIC,
-                        List.of(BookStatus.AVAILABLE, BookStatus.RESERVED),
+                        List.of(BookStatus.AVAILABLE),
                         pageable
                 )
                 .map(this::toResponse);
@@ -167,7 +163,7 @@ public class BookServiceImpl implements BookService {
 
         try {
             Book book = getOwnedBook(bookId, principal);
-            assertNotExchanged(book);
+            bookLifecyclePolicy.assertCanPublish(book);
 
             book.setVisibility(BookVisibility.PUBLIC);
             BookResponse response = toResponse(bookRepository.save(book));
@@ -194,7 +190,7 @@ public class BookServiceImpl implements BookService {
 
         try {
             Book book = getOwnedBook(bookId, principal);
-            assertNotExchanged(book);
+            bookLifecyclePolicy.assertCanHide(book);
 
             book.setVisibility(BookVisibility.PRIVATE);
             BookResponse response = toResponse(bookRepository.save(book));
@@ -222,11 +218,10 @@ public class BookServiceImpl implements BookService {
         try {
             Book book = getOwnedBook(bookId, principal);
 
-            if (book.getStatus() != BookStatus.RESERVED) {
-                throw new BookStateConflictException("Book must be RESERVED to mark as EXCHANGED.");
-            }
+            bookLifecyclePolicy.assertCanMarkExchangedForOwner(book);
 
             book.setStatus(BookStatus.EXCHANGED);
+            book.setVisibility(BookVisibility.PRIVATE);
             BookResponse response = toResponse(bookRepository.save(book));
             AUDIT_LOGGER.log(AuditEvent.builder("BOOK_MARK_EXCHANGED", AuditOutcome.SUCCESS)
                     .actorUserId(actorUserId)
@@ -253,12 +248,6 @@ public class BookServiceImpl implements BookService {
             throw new BookAccessDeniedException(bookId);
         }
         return book;
-    }
-
-    private void assertNotExchanged(Book book) {
-        if (book.getStatus() == BookStatus.EXCHANGED) {
-            throw new BookStateConflictException("Book is already EXCHANGED and cannot be modified.");
-        }
     }
 
     private Long requireUserId(UserPrincipal principal) {

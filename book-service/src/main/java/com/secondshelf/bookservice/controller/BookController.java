@@ -32,7 +32,7 @@ public class BookController {
 
     @Operation(
             summary = "Get public catalog",
-            description = "Returns paginated public catalog of books that are visible for exchange"
+            description = "Returns paginated public catalog of books that are PUBLIC and AVAILABLE for exchange"
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Public catalog returned")
@@ -47,7 +47,7 @@ public class BookController {
 
     @Operation(
             summary = "Get my books",
-            description = "Returns paginated list of books owned by the authenticated user"
+            description = "Returns paginated list of books owned by the authenticated user, including AVAILABLE, RESERVED, and EXCHANGED states"
     )
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
@@ -84,7 +84,7 @@ public class BookController {
 
     @Operation(
             summary = "Update book",
-            description = "Updates book data for a book owned by the authenticated user"
+            description = "Updates book data for an AVAILABLE book owned by the authenticated user"
     )
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
@@ -105,7 +105,7 @@ public class BookController {
 
     @Operation(
             summary = "Delete book",
-            description = "Deletes a book owned by the authenticated user"
+            description = "Deletes an AVAILABLE book owned by the authenticated user"
     )
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
@@ -125,7 +125,7 @@ public class BookController {
 
     @Operation(
             summary = "Get book by id",
-            description = "Returns a book by id with access rules applied to the authenticated user"
+            description = "Returns a book by id. Owners can access their own books in any state, while non-owners can access only PUBLIC and AVAILABLE books; all other states are hidden as 404."
     )
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
@@ -144,7 +144,7 @@ public class BookController {
 
     @Operation(
             summary = "Publish book",
-            description = "Makes the book visible in the public catalog"
+            description = "Makes an owned AVAILABLE book visible in the public catalog"
     )
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
@@ -164,7 +164,7 @@ public class BookController {
 
     @Operation(
             summary = "Hide book",
-            description = "Removes the book from the public catalog"
+            description = "Removes an owned AVAILABLE book from the public catalog"
     )
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({

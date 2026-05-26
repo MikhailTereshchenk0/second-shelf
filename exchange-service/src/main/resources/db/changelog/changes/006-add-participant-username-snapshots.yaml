@@ -1,0 +1,14 @@
+databaseChangeLog:
+  - changeSet:
+      id: 006-add-participant-username-snapshots
+      author: OpenAI
+      changes:
+        - addColumn:
+            tableName: exchange_requests
+            columns:
+              - column:
+                  name: requester_username_snapshot
+                  type: VARCHAR(100)
+              - column:
+                  name: owner_username_snapshot
+                  type: VARCHAR(100)

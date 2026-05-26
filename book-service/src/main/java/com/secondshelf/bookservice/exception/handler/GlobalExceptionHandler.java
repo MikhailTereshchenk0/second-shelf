@@ -19,7 +19,7 @@ public class GlobalExceptionHandler {
     public ErrorResponse handleNotFound(BookNotFoundException ex) {
         return ErrorResponse.builder()
                 .timestamp(LocalDateTime.now())
-                .code("BOOK_NOT_FOUND")
+                .code(ex.getCode())
                 .message(ex.getMessage())
                 .build();
     }
@@ -39,7 +39,7 @@ public class GlobalExceptionHandler {
     public ErrorResponse handleConflict(BookStateConflictException ex) {
         return ErrorResponse.builder()
                 .timestamp(LocalDateTime.now())
-                .code("CONFLICT")
+                .code(ex.getCode())
                 .message(ex.getMessage())
                 .build();
     }
@@ -49,7 +49,7 @@ public class GlobalExceptionHandler {
     public ErrorResponse handleForbidden(ForbiddenOperationException ex) {
         return ErrorResponse.builder()
                 .timestamp(LocalDateTime.now())
-                .code("FORBIDDEN")
+                .code(ex.getCode())
                 .message(ex.getMessage())
                 .build();
     }

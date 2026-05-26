@@ -68,9 +68,10 @@ class ExchangeServiceJpaTest {
 
         // act
         LocalDateTime ownerConfirmedAt;
+        var response = (com.secondshelf.exchangeservice.dto.ExchangeResponse) null;
         try (CorrelationId.Scope ignored = CorrelationId.openScope("corr-complete-first-jpa-123")) {
-            ownerConfirmedAt = exchangeService.complete(request.getId(), new UserPrincipal(55L, "owner"))
-                    .getOwnerCompletionConfirmedAt();
+            response = exchangeService.complete(request.getId(), new UserPrincipal(55L, "owner"));
+            ownerConfirmedAt = response.getOwnerCompletionConfirmedAt();
         }
         entityManager.flush();
         entityManager.clear();
@@ -81,6 +82,10 @@ class ExchangeServiceJpaTest {
         ExchangeEventPayload payload = objectMapper.readValue(outboxEvent.getPayload(), ExchangeEventPayload.class);
 
         assertNotNull(ownerConfirmedAt);
+        assertEquals("The Left Hand of Darkness", response.getRequestedBookTitle());
+        assertEquals("Ursula K. Le Guin", response.getRequestedBookAuthor());
+        assertEquals("Dune", response.getOfferedBookTitle());
+        assertEquals("Frank Herbert", response.getOfferedBookAuthor());
         assertEquals(ExchangeStatus.COMPLETION_PENDING, persistedRequest.getStatus());
         assertEquals(ownerConfirmedAt, persistedRequest.getOwnerCompletionConfirmedAt());
         assertNull(persistedRequest.getRequesterCompletionConfirmedAt());
@@ -115,9 +120,10 @@ class ExchangeServiceJpaTest {
 
         // act
         LocalDateTime requesterConfirmedAt;
+        var response = (com.secondshelf.exchangeservice.dto.ExchangeResponse) null;
         try (CorrelationId.Scope ignored = CorrelationId.openScope("corr-complete-second-jpa-123")) {
-            requesterConfirmedAt = exchangeService.complete(request.getId(), new UserPrincipal(42L, "alice"))
-                    .getRequesterCompletionConfirmedAt();
+            response = exchangeService.complete(request.getId(), new UserPrincipal(42L, "alice"));
+            requesterConfirmedAt = response.getRequesterCompletionConfirmedAt();
         }
         entityManager.flush();
         entityManager.clear();
@@ -128,6 +134,10 @@ class ExchangeServiceJpaTest {
         ExchangeEventPayload payload = objectMapper.readValue(outboxEvent.getPayload(), ExchangeEventPayload.class);
 
         assertNotNull(requesterConfirmedAt);
+        assertEquals("The Left Hand of Darkness", response.getRequestedBookTitle());
+        assertEquals("Ursula K. Le Guin", response.getRequestedBookAuthor());
+        assertEquals("Dune", response.getOfferedBookTitle());
+        assertEquals("Frank Herbert", response.getOfferedBookAuthor());
         assertEquals(ExchangeStatus.COMPLETED, persistedRequest.getStatus());
         assertEquals(ownerConfirmedAt, persistedRequest.getOwnerCompletionConfirmedAt());
         assertEquals(requesterConfirmedAt, persistedRequest.getRequesterCompletionConfirmedAt());

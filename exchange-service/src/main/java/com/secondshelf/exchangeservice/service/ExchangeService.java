@@ -26,6 +26,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -92,6 +93,7 @@ public class ExchangeService {
                             .offeredBookAuthor(offeredBook.getAuthor())
                             .ownerId(requestedBook.getOwnerId())
                             .requesterId(requesterId)
+                            .requesterUsernameSnapshot(principal != null ? principal.username() : null)
                             .status(ExchangeStatus.PENDING)
                             .message(req.getMessage())
                             .build()
@@ -168,6 +170,7 @@ public class ExchangeService {
                 );
             }
 
+            populateOwnerUsernameSnapshotIfMissing(req, principal);
             reserveBothBooks(req);
 
             req.setStatus(ExchangeStatus.ACCEPTED);
@@ -215,6 +218,7 @@ public class ExchangeService {
                 );
             }
 
+            populateOwnerUsernameSnapshotIfMissing(req, principal);
             req.setStatus(ExchangeStatus.DECLINED);
             ExchangeRequest saved = exchangeRepository.save(req);
             exchangeOutboxService.recordExchangeEvent(
@@ -263,6 +267,7 @@ public class ExchangeService {
                 releaseBothBooks(req);
             }
 
+            populateRequesterUsernameSnapshotIfMissing(req, principal);
             req.setStatus(ExchangeStatus.CANCELLED);
             ExchangeRequest saved = exchangeRepository.save(req);
             exchangeOutboxService.recordExchangeEvent(
@@ -322,6 +327,7 @@ public class ExchangeService {
 
             LocalDateTime confirmedAt = LocalDateTime.now();
             if (!req.hasAnyCompletionConfirmation()) {
+                populateParticipantUsernameSnapshotIfMissing(req, principal, me);
                 req.confirmCompletion(me, confirmedAt);
                 req.setStatus(ExchangeStatus.COMPLETION_PENDING);
                 ExchangeRequest saved = exchangeRepository.save(req);
@@ -342,6 +348,7 @@ public class ExchangeService {
             }
 
             completeBothBooks(req);
+            populateParticipantUsernameSnapshotIfMissing(req, principal, me);
             req.confirmCompletion(me, confirmedAt);
             req.setStatus(ExchangeStatus.COMPLETED);
             ExchangeRequest saved = exchangeRepository.save(req);
@@ -593,13 +600,47 @@ public class ExchangeService {
         return ex;
     }
 
+    private void populateOwnerUsernameSnapshotIfMissing(ExchangeRequest exchangeRequest, UserPrincipal principal) {
+        if (exchangeRequest.getOwnerUsernameSnapshot() == null
+                && principal != null
+                && StringUtils.hasText(principal.username())) {
+            exchangeRequest.setOwnerUsernameSnapshot(principal.username());
+        }
+    }
+
+    private void populateRequesterUsernameSnapshotIfMissing(ExchangeRequest exchangeRequest, UserPrincipal principal) {
+        if (exchangeRequest.getRequesterUsernameSnapshot() == null
+                && principal != null
+                && StringUtils.hasText(principal.username())) {
+            exchangeRequest.setRequesterUsernameSnapshot(principal.username());
+        }
+    }
+
+    private void populateParticipantUsernameSnapshotIfMissing(ExchangeRequest exchangeRequest,
+                                                              UserPrincipal principal,
+                                                              Long actorUserId) {
+        if (exchangeRequest.isRequesterParticipant(actorUserId)) {
+            populateRequesterUsernameSnapshotIfMissing(exchangeRequest, principal);
+            return;
+        }
+        if (exchangeRequest.isOwnerParticipant(actorUserId)) {
+            populateOwnerUsernameSnapshotIfMissing(exchangeRequest, principal);
+        }
+    }
+
     private ExchangeResponse toResponse(ExchangeRequest r) {
         return ExchangeResponse.builder()
                 .id(r.getId())
                 .requestedBookId(r.getRequestedBookId())
+                .requestedBookTitle(r.getRequestedBookTitle())
+                .requestedBookAuthor(r.getRequestedBookAuthor())
                 .offeredBookId(r.getOfferedBookId())
+                .offeredBookTitle(r.getOfferedBookTitle())
+                .offeredBookAuthor(r.getOfferedBookAuthor())
                 .ownerId(r.getOwnerId())
                 .requesterId(r.getRequesterId())
+                .ownerUsernameSnapshot(r.getOwnerUsernameSnapshot())
+                .requesterUsernameSnapshot(r.getRequesterUsernameSnapshot())
                 .status(r.getStatus())
                 .message(r.getMessage())
                 .ownerCompletionConfirmedAt(r.getOwnerCompletionConfirmedAt())

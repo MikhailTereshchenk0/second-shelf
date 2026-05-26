@@ -2,6 +2,8 @@ package com.secondshelf.authservice.exception.handler;
 
 import com.secondshelf.authservice.exception.UserServiceClientException;
 import com.secondshelf.authservice.exception.advice.ErrorResponse;
+import com.secondshelf.authservice.ratelimit.AuthRateLimitExceededException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -16,6 +18,8 @@ import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final String AUTH_RATE_LIMIT_EXCEEDED = "AUTH_RATE_LIMIT_EXCEEDED";
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex) {
@@ -69,5 +73,18 @@ public class GlobalExceptionHandler {
                         .message(ex.getReason())
                         .build()
         );
+    }
+
+    @ExceptionHandler(AuthRateLimitExceededException.class)
+    public ResponseEntity<ErrorResponse> handleAuthRateLimitExceeded(AuthRateLimitExceededException ex) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
+                .body(
+                        ErrorResponse.builder()
+                                .timestamp(LocalDateTime.now())
+                                .code(AUTH_RATE_LIMIT_EXCEEDED)
+                                .message(ex.getMessage())
+                                .build()
+                );
     }
 }
