@@ -39,7 +39,8 @@ Maven root modules:
 - `user-service` owns user profiles, administrator role management, and
   account blocking/unblocking.
 - `book-service` owns the public catalog and owner-side book CRUD and
-  visibility operations.
+  visibility operations for `AVAILABLE` books, while exchange-driven reserve /
+  release / exchanged transitions happen through internal endpoints.
 - `exchange-service` owns the exchange request workflow and coordinates book
   reservation/release/completion through synchronous internal calls to
   `book-service`.
@@ -377,14 +378,14 @@ Current exchange workflow in `exchange-service`:
 | Status | Meaning |
 | --- | --- |
 | `AVAILABLE` | The book can participate in exchange operations. |
-| `RESERVED` | The book is locked by an accepted exchange request. |
+| `RESERVED` | The book is locked by an accepted exchange request and remains visible only to the owner in `/my`; normal owner update/delete/publish/hide operations are blocked. |
 | `EXCHANGED` | The book has been exchanged and can no longer be modified through normal owner flows. |
 
 Related visibility states in `book-service`:
 
 | Visibility | Meaning |
 | --- | --- |
-| `PUBLIC` | Visible in the public catalog and allowed for exchange creation. |
+| `PUBLIC` | Visible in the public catalog only when the book status is also `AVAILABLE`; only this combination is eligible for exchange creation and non-owner `getById`. |
 | `PRIVATE` | Hidden from the public catalog. |
 
 ### Exchange Statuses
@@ -669,8 +670,9 @@ Additional async observability URLs:
   does not use distributed transactions. Reserve/release flows have only
   best-effort compensation, and completion has no cross-service rollback, so
   some failure cases may still require manual repair.
-- The public catalog currently includes `PUBLIC` books with statuses
-  `AVAILABLE` and `RESERVED`, so reserved books remain visible in the catalog.
+- Non-owners can load a single book only when it is both `PUBLIC` and
+  `AVAILABLE`; private, reserved, and exchanged books are intentionally
+  hidden as `404`.
 - Dead-letter handling exists, but there is no automatic DLQ redrive flow or
   retry backoff policy.
 - `notification-service` creates persisted in-app notifications only. There is
