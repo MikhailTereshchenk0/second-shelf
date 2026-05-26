@@ -79,6 +79,34 @@
 - синхронизация времени;
 - secret manager.
 
+## Проверка зависимостей на уязвимости
+
+В root `pom.xml` добавлен отдельный Maven profile `security-scan` для проверки
+third-party dependencies. Обычные команды разработки, например
+`./mvnw test` и `./mvnw -DskipTests package`, не запускают этот scan и не
+зависят от доступности internet/NVD.
+
+Команда для CI или явной ручной проверки:
+
+```bash
+./mvnw -Psecurity-scan verify
+```
+
+Профиль запускает OWASP Dependency-Check Maven plugin в aggregate-режиме для
+multi-module проекта и сохраняет отчеты в `target/security-reports`.
+Настроены HTML и JSON форматы. Build с активным `security-scan` считается
+неуспешным при найденной уязвимости с CVSS `7.0` и выше.
+
+Эксплуатационные правила:
+
+- запускать scan в CI/CD или отдельном security pipeline, где есть стабильный
+  доступ к NVD или корпоративному кэшу Dependency-Check;
+- не требовать успешного security scan от обычной локальной сборки без сети;
+- хранить отчеты как CI artifacts с ограниченным доступом;
+- разбирать high/critical findings до release;
+- добавлять suppression file только для подтвержденных false positives, с
+  комментарием к каждому suppression и сроком пересмотра.
+
 ## Рекомендуемые эксплуатационные правила
 
 - не хранить секреты в `.env`, если файл доступен широкому кругу лиц;

@@ -830,6 +830,21 @@ Additional async observability URLs:
 | `notification-service` | `http://localhost:8084/actuator/health/asyncFlow` | Rabbit listener readiness details. |
 | `notification-service` | `http://localhost:8084/actuator/metrics` | Consumer counters and dead-letter metrics. |
 
+## Dependency Vulnerability Scan
+
+Regular local builds do not run dependency vulnerability scanning. The root
+Maven build exposes a separate corporate-style profile for CI or explicit local
+security checks:
+
+```bash
+./mvnw -Psecurity-scan verify
+```
+
+The profile runs OWASP Dependency-Check against the Maven reactor and writes
+HTML and JSON reports to `target/security-reports`. It may need internet/NVD
+access or a pre-populated Dependency-Check data cache, so it is intentionally
+kept out of normal `test` and `package` workflows.
+
 ## How To Verify Key Scenarios Locally
 
 1. Auth and JWT:

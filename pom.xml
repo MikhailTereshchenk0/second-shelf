@@ -32,6 +32,7 @@
         <java.version>17</java.version>
         <jjwt.version>0.12.5</jjwt.version>
         <mapstruct.version>1.5.5.Final</mapstruct.version>
+        <owasp.dependency-check.version>12.2.0</owasp.dependency-check.version>
         <springdoc.version>2.8.16</springdoc.version>
         <spring-cloud.version>2025.0.0</spring-cloud.version>
     </properties>
@@ -47,4 +48,37 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
+
+    <profiles>
+        <profile>
+            <id>security-scan</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.owasp</groupId>
+                        <artifactId>dependency-check-maven</artifactId>
+                        <version>${owasp.dependency-check.version}</version>
+                        <inherited>false</inherited>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/security-reports</outputDirectory>
+                            <formats>
+                                <format>HTML</format>
+                                <format>JSON</format>
+                            </formats>
+                            <failBuildOnCVSS>7.0</failBuildOnCVSS>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>dependency-vulnerability-scan</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>aggregate</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
