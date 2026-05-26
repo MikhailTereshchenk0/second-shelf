@@ -23,6 +23,9 @@ Thumbs.db
 logs/
 *.out
 
+# ===== Local operational artifacts =====
+backups/
+
 # ===== Environment / secrets =====
 .env
 .env.local
