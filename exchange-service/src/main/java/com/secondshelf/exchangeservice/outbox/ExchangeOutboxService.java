@@ -11,6 +11,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class ExchangeOutboxService {
 
+    private static final String EXCHANGE_REQUEST_AGGREGATE_TYPE = "EXCHANGE_REQUEST";
+
     private final ExchangeOutboxEventFactory exchangeOutboxEventFactory;
     private final OutboxEventRepository outboxEventRepository;
 
@@ -24,5 +26,23 @@ public class ExchangeOutboxService {
                                     ExchangeRequest exchangeRequest,
                                     ExchangeEventContext eventContext) {
         outboxEventRepository.save(exchangeOutboxEventFactory.create(eventType, exchangeRequest, eventContext));
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordExchangeEventIfAbsent(ExchangeEventType eventType,
+                                            ExchangeRequest exchangeRequest,
+                                            ExchangeEventContext eventContext) {
+        if (!hasRecordedExchangeEvent(eventType, exchangeRequest)) {
+            recordExchangeEvent(eventType, exchangeRequest, eventContext);
+        }
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY, readOnly = true)
+    public boolean hasRecordedExchangeEvent(ExchangeEventType eventType, ExchangeRequest exchangeRequest) {
+        return outboxEventRepository.existsByAggregateTypeAndAggregateIdAndEventType(
+                EXCHANGE_REQUEST_AGGREGATE_TYPE,
+                String.valueOf(exchangeRequest.getId()),
+                eventType.getValue()
+        );
     }
 }

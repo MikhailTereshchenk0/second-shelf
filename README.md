@@ -374,6 +374,40 @@ Current exchange workflow in `exchange-service`:
      final moment;
    - event `exchange.request.completed` is recorded after the second
      confirmation.
+11. On partial distributed failures:
+   - if one completion book transition succeeds and the next one fails, the
+     exchange moves to `REPAIR_REQUIRED` with `repairReason`,
+     `repairRequiredAt`, `repairAttempts`, and `lastRepairAttemptAt`;
+   - if accepted-cancel release compensation fails and can leave books
+     inconsistent, the exchange also moves to `REPAIR_REQUIRED`;
+   - normal participant actions (`accept`, `decline`, `cancel`, `complete`)
+     are blocked while repair is required.
+
+### Operational Exchange Repair
+
+Admins can repair inconsistent exchanges through:
+
+- `POST /api/v1/admin/exchanges/{id}/repair`
+- requires a bearer JWT with `ROLE_ADMIN`
+
+Repair locks the `exchange_requests` row pessimistically, increments
+`repairAttempts`, updates `lastRepairAttemptAt`, inspects the saved
+`repairReason` and exchange confirmation data, and then retries only the
+book-service transitions needed to reach the intended terminal state:
+
+- completion repair: both requested and offered books are made
+  `EXCHANGED` + `PRIVATE`; the exchange becomes `COMPLETED`; an
+  `exchange.request.completed` outbox event is recorded if it was not already
+  recorded for the final transition;
+- cancellation repair: both requested and offered books are made
+  `AVAILABLE`; the exchange becomes `CANCELLED`; an
+  `exchange.request.cancelled` outbox event is recorded if absent.
+
+If a repair attempt fails, the exchange remains `REPAIR_REQUIRED`,
+`repairAttempts` still increases, `lastRepairAttemptAt` is refreshed, and
+`repairReason` is updated with the latest failure. Calling repair again after a
+successful repair is idempotent and returns the already repaired exchange
+without repeating book transitions.
 
 ## Statuses
 
@@ -399,6 +433,7 @@ Related visibility states in `book-service`:
 | `PENDING` | Request created and waiting for owner decision. |
 | `ACCEPTED` | Request accepted and both books reserved. |
 | `COMPLETION_PENDING` | One participant confirmed completion; waiting for the second participant. |
+| `REPAIR_REQUIRED` | A distributed book transition or compensation partially failed; participant actions are blocked until admin repair completes. |
 | `DECLINED` | Request explicitly declined or auto-declined because another request was accepted. |
 | `CANCELLED` | Request cancelled by requester before any completion confirmation. |
 | `COMPLETED` | Both participants confirmed completion and both books were marked exchanged. |
@@ -671,9 +706,10 @@ Additional async observability URLs:
   new login/refresh, but already issued access tokens remain valid until their
   expiration time.
 - `exchange-service` coordinates remote book state changes synchronously and
-  does not use distributed transactions. Reserve/release flows have only
-  best-effort compensation, and completion has no cross-service rollback, so
-  some failure cases may still require manual repair.
+  does not use distributed transactions. Partial completion and failed cancel
+  compensation cases are surfaced as `REPAIR_REQUIRED` and can be retried via
+  the admin repair endpoint, but the flow is still operational repair rather
+  than an automatic distributed transaction.
 - Non-owners can load a single book only when it is both `PUBLIC` and
   `AVAILABLE`; private, reserved, and exchanged books are intentionally
   hidden as `404`.

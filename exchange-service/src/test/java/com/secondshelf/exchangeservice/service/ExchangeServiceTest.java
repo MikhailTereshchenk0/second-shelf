@@ -1074,6 +1074,126 @@ class ExchangeServiceTest {
     }
 
     @Test
+    void repairShouldCompletePartialCompletionInconsistency() {
+        // arrange
+        LocalDateTime repairRequiredAt = LocalDateTime.now().minusMinutes(5);
+        ExchangeRequest request = ExchangeRequest.builder()
+                .id(10L)
+                .requestedBookId(100L)
+                .offeredBookId(200L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.REPAIR_REQUIRED)
+                .ownerCompletionConfirmedAt(LocalDateTime.now().minusMinutes(15))
+                .requesterCompletionConfirmedAt(LocalDateTime.now().minusMinutes(10))
+                .repairReason("PARTIAL_COMPLETION_FAILED: books marked EXCHANGED=[100]")
+                .repairRequiredAt(repairRequiredAt)
+                .repairAttempts(0)
+                .build();
+
+        when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
+        when(bookServiceClient.getBook(100L)).thenReturn(book(100L, "EXCHANGED", "PRIVATE"));
+        when(bookServiceClient.getBook(200L)).thenReturn(book(200L, "RESERVED", "PUBLIC"));
+        when(bookServiceClient.markExchanged(200L)).thenReturn(book(200L, "EXCHANGED", "PRIVATE"));
+        when(exchangeRepository.save(any(ExchangeRequest.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // act
+        ExchangeResponse response = exchangeService.repair(10L, new UserPrincipal(99L, "admin"));
+
+        // assert
+        assertEquals(ExchangeStatus.COMPLETED, response.getStatus());
+        assertEquals(ExchangeStatus.COMPLETED, request.getStatus());
+        assertEquals(1, response.getRepairAttempts());
+        assertNotNull(response.getLastRepairAttemptAt());
+        assertEquals(repairRequiredAt, response.getRepairRequiredAt());
+
+        verify(bookServiceClient).getBook(100L);
+        verify(bookServiceClient).getBook(200L);
+        verify(bookServiceClient, never()).markExchanged(100L);
+        verify(bookServiceClient).markExchanged(200L);
+        verify(exchangeRepository).save(request);
+        verify(exchangeOutboxService).recordExchangeEventIfAbsent(
+                ExchangeEventType.EXCHANGE_REQUEST_COMPLETED,
+                request,
+                eventContext(99L, "admin")
+        );
+    }
+
+    @Test
+    void repairShouldIncreaseAttemptsAndLeaveRepairRequiredWhenRemoteTransitionFails() {
+        // arrange
+        ExchangeRequest request = ExchangeRequest.builder()
+                .id(10L)
+                .requestedBookId(100L)
+                .offeredBookId(200L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.REPAIR_REQUIRED)
+                .ownerCompletionConfirmedAt(LocalDateTime.now().minusMinutes(15))
+                .requesterCompletionConfirmedAt(LocalDateTime.now().minusMinutes(10))
+                .repairReason("PARTIAL_COMPLETION_FAILED: books marked EXCHANGED=[]")
+                .repairRequiredAt(LocalDateTime.now().minusMinutes(5))
+                .repairAttempts(1)
+                .build();
+
+        when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
+        when(bookServiceClient.getBook(100L)).thenReturn(book(100L, "RESERVED", "PUBLIC"));
+        when(bookServiceClient.markExchanged(100L))
+                .thenThrow(new IllegalStateException("Book cannot be marked EXCHANGED during repair."));
+        when(exchangeRepository.save(any(ExchangeRequest.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // act
+        ExchangeConflictException exception = assertThrows(
+                ExchangeConflictException.class,
+                () -> exchangeService.repair(10L, new UserPrincipal(99L, "admin"))
+        );
+
+        // assert
+        assertEquals("EXCHANGE_REPAIR_FAILED", exception.getCode());
+        assertEquals(ExchangeStatus.REPAIR_REQUIRED, request.getStatus());
+        assertEquals(2, request.getRepairAttempts());
+        assertNotNull(request.getLastRepairAttemptAt());
+        assertTrue(request.getRepairReason().contains("REPAIR_ATTEMPT_FAILED"));
+        assertTrue(request.getRepairReason().contains("Book cannot be marked EXCHANGED during repair."));
+
+        verify(bookServiceClient).getBook(100L);
+        verify(bookServiceClient).markExchanged(100L);
+        verify(bookServiceClient, never()).getBook(200L);
+        verify(exchangeRepository).save(request);
+        verifyNoInteractions(exchangeOutboxService);
+    }
+
+    @Test
+    void repairShouldBeIdempotentAfterSuccessfulRepair() {
+        // arrange
+        ExchangeRequest request = ExchangeRequest.builder()
+                .id(10L)
+                .requestedBookId(100L)
+                .offeredBookId(200L)
+                .ownerId(55L)
+                .requesterId(42L)
+                .status(ExchangeStatus.COMPLETED)
+                .repairReason("PARTIAL_COMPLETION_FAILED: books marked EXCHANGED=[100]")
+                .repairRequiredAt(LocalDateTime.now().minusMinutes(5))
+                .repairAttempts(1)
+                .lastRepairAttemptAt(LocalDateTime.now().minusMinutes(1))
+                .build();
+
+        when(exchangeRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
+
+        // act
+        ExchangeResponse response = exchangeService.repair(10L, new UserPrincipal(99L, "admin"));
+
+        // assert
+        assertEquals(ExchangeStatus.COMPLETED, response.getStatus());
+        assertEquals(1, response.getRepairAttempts());
+
+        verifyNoInteractions(bookServiceClient);
+        verify(exchangeRepository, never()).save(any(ExchangeRequest.class));
+        verifyNoInteractions(exchangeOutboxService);
+    }
+
+    @Test
     void cancelShouldRejectWhenCompletionWasAlreadyConfirmed() {
         // arrange
         ExchangeRequest request = ExchangeRequest.builder()
@@ -1104,6 +1224,14 @@ class ExchangeServiceTest {
 
     private HttpClientErrorException bookServiceException(HttpStatus status) {
         return HttpClientErrorException.create(status, status.getReasonPhrase(), HttpHeaders.EMPTY, new byte[0], null);
+    }
+
+    private BookDto book(Long id, String status, String visibility) {
+        BookDto book = new BookDto();
+        book.setId(id);
+        book.setStatus(status);
+        book.setVisibility(visibility);
+        return book;
     }
 
     private void assertRepairRequiredActionRejected(Runnable action) {

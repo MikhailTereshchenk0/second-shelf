@@ -38,6 +38,8 @@ import java.util.List;
 public class ExchangeService {
 
     private static final AuditLogger AUDIT_LOGGER = AuditLogger.forClass(ExchangeService.class);
+    private static final String PARTIAL_COMPLETION_REPAIR_REASON_PREFIX = "PARTIAL_COMPLETION_FAILED";
+    private static final String CANCEL_RELEASE_REPAIR_REASON_PREFIX = "CANCEL_RELEASE_COMPENSATION_FAILED";
 
     private static final List<ExchangeStatus> ACTIVE_EXCHANGE_STATUSES = List.of(
             ExchangeStatus.PENDING,
@@ -391,6 +393,89 @@ public class ExchangeService {
         }
     }
 
+    @Transactional(noRollbackFor = ExchangeConflictException.class)
+    public ExchangeResponse repair(Long exchangeId, UserPrincipal principal) {
+        Long adminUserId = requireUserId(principal);
+
+        try {
+            ExchangeRequest req = findExchangeRequestForUpdate(exchangeId);
+
+            if (isCompletedRepair(req) || isCancelledRepair(req)) {
+                AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_ADMIN_REPAIR", AuditOutcome.SUCCESS)
+                        .actorUserId(adminUserId)
+                        .entityId(exchangeId)
+                        .reason("ALREADY_REPAIRED")
+                        .attribute("status", req.getStatus())
+                        .build());
+                return toResponse(req);
+            }
+
+            if (req.getStatus() != ExchangeStatus.REPAIR_REQUIRED) {
+                throw new ExchangeConflictException(
+                        "EXCHANGE_NOT_REPAIR_REQUIRED",
+                        "Only REPAIR_REQUIRED exchange can be repaired."
+                );
+            }
+
+            incrementRepairAttempt(req);
+            RepairTarget target = resolveRepairTarget(req);
+
+            try {
+                if (target == RepairTarget.COMPLETED) {
+                    repairCompletion(req);
+                } else {
+                    repairCancellation(req);
+                }
+            } catch (RuntimeException ex) {
+                req.setStatus(ExchangeStatus.REPAIR_REQUIRED);
+                req.setRepairReason("REPAIR_ATTEMPT_FAILED: " + ex.getMessage());
+                ExchangeRequest saved = exchangeRepository.save(req);
+                AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_ADMIN_REPAIR", AuditOutcome.FAILURE)
+                        .actorUserId(adminUserId)
+                        .entityId(exchangeId)
+                        .reason(saved.getRepairReason())
+                        .attribute("repairAttempts", saved.getRepairAttempts())
+                        .build());
+                throw new ExchangeConflictException("EXCHANGE_REPAIR_FAILED", saved.getRepairReason());
+            }
+
+            ExchangeRequest saved = exchangeRepository.save(req);
+            ExchangeEventContext eventContext = eventContext(principal);
+            if (target == RepairTarget.COMPLETED) {
+                exchangeOutboxService.recordExchangeEventIfAbsent(
+                        ExchangeEventType.EXCHANGE_REQUEST_COMPLETED,
+                        saved,
+                        eventContext
+                );
+            } else {
+                exchangeOutboxService.recordExchangeEventIfAbsent(
+                        ExchangeEventType.EXCHANGE_REQUEST_CANCELLED,
+                        saved,
+                        eventContext
+                );
+            }
+
+            AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_ADMIN_REPAIR", AuditOutcome.SUCCESS)
+                    .actorUserId(adminUserId)
+                    .entityId(exchangeId)
+                    .attribute("status", saved.getStatus())
+                    .attribute("repairAttempts", saved.getRepairAttempts())
+                    .build());
+            return toResponse(saved);
+        } catch (RuntimeException ex) {
+            if (!(ex instanceof ExchangeConflictException
+                    && "EXCHANGE_REPAIR_FAILED".equals(((ExchangeConflictException) ex).getCode()))) {
+                AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_ADMIN_REPAIR", AuditOutcome.FAILURE)
+                        .actorUserId(adminUserId)
+                        .entityId(exchangeId)
+                        .reason(ex.getMessage())
+                        .errorCode(resolveErrorCode(ex))
+                        .build());
+            }
+            throw ex;
+        }
+    }
+
     private void reserveBothBooks(ExchangeRequest req) {
         List<Long> reservedBookIds = new ArrayList<>();
 
@@ -634,6 +719,86 @@ public class ExchangeService {
         }
     }
 
+    private void repairCompletion(ExchangeRequest req) {
+        ensureBookExchangedAndPrivate(req.getRequestedBookId());
+        ensureBookExchangedAndPrivate(req.getOfferedBookId());
+        req.setStatus(ExchangeStatus.COMPLETED);
+    }
+
+    private void repairCancellation(ExchangeRequest req) {
+        ensureBookAvailable(req.getRequestedBookId());
+        ensureBookAvailable(req.getOfferedBookId());
+        req.setStatus(ExchangeStatus.CANCELLED);
+    }
+
+    private void ensureBookExchangedAndPrivate(Long bookId) {
+        BookDto book = getRepairBook(bookId);
+        if ("EXCHANGED".equals(book.getStatus())) {
+            if (!"PRIVATE".equals(book.getVisibility())) {
+                throw new ExchangeConflictException(
+                        "EXCHANGE_REPAIR_UNSUPPORTED_BOOK_STATE",
+                        "Book is EXCHANGED but not PRIVATE."
+                );
+            }
+            return;
+        }
+        markBookExchanged(
+                bookId,
+                "EXCHANGE_REPAIR_BOOK_COMPLETION_CONFLICT",
+                "Book cannot be marked EXCHANGED during repair."
+        );
+    }
+
+    private void ensureBookAvailable(Long bookId) {
+        BookDto book = getRepairBook(bookId);
+        if ("AVAILABLE".equals(book.getStatus())) {
+            return;
+        }
+        makeBookAvailable(
+                bookId,
+                "EXCHANGE_REPAIR_BOOK_RELEASE_CONFLICT",
+                "Book cannot be made AVAILABLE during repair."
+        );
+    }
+
+    private BookDto getRepairBook(Long bookId) {
+        try {
+            return bookServiceClient.getBook(bookId);
+        } catch (HttpClientErrorException ex) {
+            throw mapBookOperationException(ex, "EXCHANGE_REPAIR_BOOK_READ_CONFLICT", "Book cannot be read during repair.");
+        }
+    }
+
+    private RepairTarget resolveRepairTarget(ExchangeRequest req) {
+        String reason = req.getRepairReason();
+        if (reason != null && reason.startsWith(CANCEL_RELEASE_REPAIR_REASON_PREFIX)) {
+            return RepairTarget.CANCELLED;
+        }
+        if (reason != null && reason.startsWith(PARTIAL_COMPLETION_REPAIR_REASON_PREFIX)) {
+            return RepairTarget.COMPLETED;
+        }
+        if (req.isCompletionConfirmedByBothParticipants()) {
+            return RepairTarget.COMPLETED;
+        }
+        throw new ExchangeConflictException(
+                "EXCHANGE_REPAIR_TARGET_UNKNOWN",
+                "Exchange repair target cannot be determined from current exchange data."
+        );
+    }
+
+    private void incrementRepairAttempt(ExchangeRequest req) {
+        req.setRepairAttempts((req.getRepairAttempts() == null ? 0 : req.getRepairAttempts()) + 1);
+        req.setLastRepairAttemptAt(LocalDateTime.now());
+    }
+
+    private boolean isCompletedRepair(ExchangeRequest req) {
+        return req.getStatus() == ExchangeStatus.COMPLETED && req.getRepairRequiredAt() != null;
+    }
+
+    private boolean isCancelledRepair(ExchangeRequest req) {
+        return req.getStatus() == ExchangeStatus.CANCELLED && req.getRepairRequiredAt() != null;
+    }
+
     private RuntimeException mapBookOperationException(HttpClientErrorException ex,
                                                        String conflictCode,
                                                        String conflictMessage) {
@@ -762,5 +927,10 @@ public class ExchangeService {
         ExchangeRepairRequiredException(String message, Throwable cause) {
             super(message, cause);
         }
+    }
+
+    private enum RepairTarget {
+        COMPLETED,
+        CANCELLED
     }
 }

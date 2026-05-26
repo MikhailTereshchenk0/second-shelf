@@ -35,6 +35,9 @@ public class SecurityConfig {
             "/actuator/metrics/**",
             "/actuator/health/**"
     };
+    private static final String[] ADMIN_API_ENDPOINTS = {
+            "/api/v1/admin/**"
+    };
 
     private final CorrelationIdFilter correlationIdFilter;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
@@ -63,6 +66,7 @@ public class SecurityConfig {
                     }
 
                     auth.requestMatchers(ADMIN_MONITORING_ENDPOINTS).hasRole("ADMIN");
+                    auth.requestMatchers(ADMIN_API_ENDPOINTS).hasRole("ADMIN");
                     auth.anyRequest().authenticated();
                 })
                 .addFilterBefore(correlationIdFilter, UsernamePasswordAuthenticationFilter.class)
