@@ -98,7 +98,11 @@ class ExchangeServiceTest {
         assertNotNull(response);
         assertEquals(1L, response.getId());
         assertEquals(100L, response.getRequestedBookId());
+        assertEquals("The Left Hand of Darkness", response.getRequestedBookTitle());
+        assertEquals("Ursula K. Le Guin", response.getRequestedBookAuthor());
         assertEquals(200L, response.getOfferedBookId());
+        assertEquals("Dune", response.getOfferedBookTitle());
+        assertEquals("Frank Herbert", response.getOfferedBookAuthor());
         assertEquals(55L, response.getOwnerId());
         assertEquals(42L, response.getRequesterId());
         assertEquals(ExchangeStatus.PENDING, response.getStatus());
@@ -735,6 +739,11 @@ class ExchangeServiceTest {
         ExchangeRequest request = ExchangeRequest.builder()
                 .id(20L)
                 .requestedBookId(200L)
+                .requestedBookTitle("The Dispossessed")
+                .requestedBookAuthor("Ursula K. Le Guin")
+                .offeredBookId(300L)
+                .offeredBookTitle("Neuromancer")
+                .offeredBookAuthor("William Gibson")
                 .ownerId(55L)
                 .requesterId(42L)
                 .status(ExchangeStatus.PENDING)
@@ -750,6 +759,8 @@ class ExchangeServiceTest {
         assertEquals(1, result.getTotalElements());
         assertEquals(20L, result.getContent().get(0).getId());
         assertEquals(42L, result.getContent().get(0).getRequesterId());
+        assertEquals("The Dispossessed", result.getContent().get(0).getRequestedBookTitle());
+        assertEquals("William Gibson", result.getContent().get(0).getOfferedBookAuthor());
     }
 
     @Test

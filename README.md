@@ -341,6 +341,8 @@ Current exchange workflow in `exchange-service`:
      is `PENDING`, `ACCEPTED`, or `COMPLETION_PENDING`.
 4. The exchange request is stored with status `PENDING`, together with the
    current title/author snapshots of both books.
+   Exchange API responses reuse these persisted snapshots and do not fetch book
+   metadata again during response mapping.
 5. Event `exchange.request.created` is recorded in `outbox_events`.
 6. The owner of the requested book can accept or decline the request.
 7. On accept:
