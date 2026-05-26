@@ -1,19 +1,28 @@
 package com.secondshelf.userservice.service;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.secondshelf.userservice.dto.PrivateUserProfileResponse;
 import com.secondshelf.userservice.entity.Role;
 import com.secondshelf.userservice.entity.User;
 import com.secondshelf.userservice.exception.UserNotFoundException;
 import com.secondshelf.userservice.mapper.UserMapper;
 import com.secondshelf.userservice.repository.UserRepository;
+import com.secondshelf.userservice.security.AuthenticatedUser;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.LoggerFactory;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -31,6 +40,11 @@ class AdminUserServiceImplTest {
 
     @InjectMocks
     private AdminUserServiceImpl adminUserService;
+
+    @AfterEach
+    void tearDown() {
+        SecurityContextHolder.clearContext();
+    }
 
     @Test
     void updateRolesShouldReplaceUserRolesAndReturnMappedResponse() {
@@ -74,6 +88,13 @@ class AdminUserServiceImplTest {
                 .username("bob")
                 .enabled(true)
                 .build();
+        Logger logger = (Logger) LoggerFactory.getLogger(AdminUserServiceImpl.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(new AuthenticatedUser(99L, "admin"), null, List.of())
+        );
 
         when(userRepository.findById(2L)).thenReturn(Optional.of(user));
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -86,7 +107,12 @@ class AdminUserServiceImplTest {
 
         ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
 
-        PrivateUserProfileResponse response = adminUserService.block(2L);
+        PrivateUserProfileResponse response;
+        try {
+            response = adminUserService.block(2L);
+        } finally {
+            logger.detachAppender(appender);
+        }
 
         assertNotNull(response);
         assertEquals(2L, response.getId());
@@ -95,6 +121,13 @@ class AdminUserServiceImplTest {
 
         verify(userRepository).save(userCaptor.capture());
         assertFalse(userCaptor.getValue().isEnabled());
+        assertFalse(appender.list.isEmpty());
+
+        String auditMessage = appender.list.get(0).getFormattedMessage();
+        assertTrue(auditMessage.contains("eventType=USER_ADMIN_BLOCK"));
+        assertTrue(auditMessage.contains("outcome=SUCCESS"));
+        assertTrue(auditMessage.contains("actorUserId=99"));
+        assertTrue(auditMessage.contains("targetUserId=2"));
     }
 
     @Test

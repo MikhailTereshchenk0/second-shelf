@@ -6,6 +6,7 @@ import com.secondshelf.authservice.client.dto.UserClaimsResponse;
 import com.secondshelf.authservice.dto.RegisterRequest;
 import com.secondshelf.authservice.exception.UserServiceClientException;
 import com.secondshelf.authservice.exception.advice.ErrorResponse;
+import com.secondshelf.authservice.observability.CorrelationId;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -30,6 +31,7 @@ public class UserServiceClient {
             userServiceRestClient.post()
                     .uri("/internal/users")
                     .header("X-Internal-Token", internalToken)
+                    .header(CorrelationId.HEADER_NAME, CorrelationId.currentOrGenerate())
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(request)
                     .retrieve()
@@ -44,6 +46,7 @@ public class UserServiceClient {
             return userServiceRestClient.post()
                     .uri("/internal/auth/authenticate")
                     .header("X-Internal-Token", internalToken)
+                    .header(CorrelationId.HEADER_NAME, CorrelationId.currentOrGenerate())
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(new UserAuthRequest(username, password))
                     .retrieve()
@@ -71,6 +74,7 @@ public class UserServiceClient {
         return userServiceRestClient.get()
                 .uri("/internal/users/{id}/claims", userId)
                 .header("X-Internal-Token", internalToken)
+                .header(CorrelationId.HEADER_NAME, CorrelationId.currentOrGenerate())
                 .retrieve()
                 .body(UserClaimsResponse.class);
     }

@@ -1,6 +1,7 @@
 package com.secondshelf.exchangeservice.client;
 
 import com.secondshelf.exchangeservice.client.dto.BookDto;
+import com.secondshelf.exchangeservice.observability.CorrelationId;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -22,6 +23,7 @@ public class BookServiceClient {
         return rest.get()
                 .uri("/internal/books/{id}", id)
                 .header("X-Internal-Token", internalToken)
+                .header(CorrelationId.HEADER_NAME, CorrelationId.currentOrGenerate())
                 .retrieve()
                 .body(BookDto.class);
     }
@@ -30,6 +32,7 @@ public class BookServiceClient {
         return rest.post()
                 .uri("/internal/books/{id}/reserve", id)
                 .header("X-Internal-Token", internalToken)
+                .header(CorrelationId.HEADER_NAME, CorrelationId.currentOrGenerate())
                 .contentType(MediaType.APPLICATION_JSON)
                 .retrieve()
                 .body(BookDto.class);
@@ -39,6 +42,7 @@ public class BookServiceClient {
         return rest.post()
                 .uri("/internal/books/{id}/available", id)
                 .header("X-Internal-Token", internalToken)
+                .header(CorrelationId.HEADER_NAME, CorrelationId.currentOrGenerate())
                 .contentType(MediaType.APPLICATION_JSON)
                 .retrieve()
                 .body(BookDto.class);
@@ -48,6 +52,7 @@ public class BookServiceClient {
         return rest.post()
                 .uri("/internal/books/{id}/exchanged", id)
                 .header("X-Internal-Token", internalToken)
+                .header(CorrelationId.HEADER_NAME, CorrelationId.currentOrGenerate())
                 .contentType(MediaType.APPLICATION_JSON)
                 .retrieve()
                 .body(BookDto.class);

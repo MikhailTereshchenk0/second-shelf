@@ -9,6 +9,10 @@ import com.secondshelf.userservice.dto.UpdateUserProfileRequest;
 import com.secondshelf.userservice.entity.User;
 import com.secondshelf.userservice.mapper.UserMapper;
 import com.secondshelf.userservice.repository.UserRepository;
+import com.secondshelf.userservice.security.SecurityUtils;
+import com.secondshelf.observability.AuditEvent;
+import com.secondshelf.observability.AuditLogger;
+import com.secondshelf.observability.AuditOutcome;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -18,6 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional
 public class UserServiceImpl implements UserService {
+
+    private static final AuditLogger AUDIT_LOGGER = AuditLogger.forClass(UserServiceImpl.class);
 
     private final UserRepository userRepository;
     private final UserMapper userMapper;
@@ -71,12 +77,28 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public PrivateUserProfileResponse updateProfile(Long id, UpdateUserProfileRequest request) {
-        User user = userRepository.findById(id)
-                .orElseThrow(() -> new UserNotFoundException(id));
+        Long actorUserId = SecurityUtils.currentUserId();
 
-        userMapper.updateUserFromRequest(request, user);
+        try {
+            User user = userRepository.findById(id)
+                    .orElseThrow(() -> new UserNotFoundException(id));
 
-        User updated = userRepository.save(user);
-        return userMapper.toPrivateUserProfileResponse(updated);
+            userMapper.updateUserFromRequest(request, user);
+
+            User updated = userRepository.save(user);
+            PrivateUserProfileResponse response = userMapper.toPrivateUserProfileResponse(updated);
+            AUDIT_LOGGER.log(AuditEvent.builder("USER_PROFILE_UPDATE", AuditOutcome.SUCCESS)
+                    .actorUserId(actorUserId)
+                    .targetUserId(id)
+                    .build());
+            return response;
+        } catch (RuntimeException ex) {
+            AUDIT_LOGGER.log(AuditEvent.builder("USER_PROFILE_UPDATE", AuditOutcome.FAILURE)
+                    .actorUserId(actorUserId)
+                    .targetUserId(id)
+                    .reason(ex.getMessage())
+                    .build());
+            throw ex;
+        }
     }
 }

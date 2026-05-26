@@ -14,9 +14,10 @@
 
 - Все сервисы публикуют Actuator health endpoints.
 - `exchange-service` и `notification-service` публикуют дополнительные метрики и async health groups.
-- `exchange-service` и `notification-service` используют `X-Correlation-Id`, записывают его в MDC и возвращают в ответе.
+- Все HTTP-сервисы используют `X-Correlation-Id`, записывают его в MDC и возвращают в ответе.
 - `exchange-service` отслеживает состояние outbox через health indicator и Micrometer counters.
 - `notification-service` отслеживает состояние Rabbit listeners и метрики обработки событий.
+- Security audit события пишутся в application logs в structured key-value стиле с маскированием чувствительных полей.
 
 ## События, подлежащие журналированию
 
@@ -57,9 +58,8 @@
 
 ## Особенности текущей реализации
 
-- Корреляция запросов через `X-Correlation-Id` реализована только в `exchange-service` и `notification-service`.
-- `auth-service`, `user-service` и `book-service` пока не имеют встроенного correlation filter, поэтому в production-контуре
-  желательно дополнять их ingress-level request id и централизованной корреляцией логов.
+- Audit logs должны оставаться в приложении и не требуют отдельной инфраструктуры, но для production по-прежнему желателен
+  централизованный сбор и ретенция.
 - `show-details: never` уменьшает риск утечки деталей через публичный health endpoint, но не заменяет защиту самих management interfaces.
 
 ## Эксплуатационные требования
