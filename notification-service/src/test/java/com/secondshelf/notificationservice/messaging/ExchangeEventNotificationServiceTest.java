@@ -66,7 +66,7 @@ class ExchangeEventNotificationServiceTest {
         assertEquals(NotificationType.EXCHANGE_REQUEST_CREATED, notification.getType());
         assertEquals("New exchange request", notification.getTitle());
         assertEquals(
-                "alice wants to exchange \"Dune\" by Frank Herbert for your \"The Left Hand of Darkness\" by Ursula K. Le Guin. Message from requester: Can meet this weekend.",
+                "alice wants your \"The Left Hand of Darkness\" by Ursula K. Le Guin. Message from requester: Can meet this weekend.",
                 notification.getMessage()
         );
         assertEquals("EXCHANGE_REQUEST", notification.getRelatedEntityType());
@@ -82,11 +82,12 @@ class ExchangeEventNotificationServiceTest {
     }
 
     @Test
-    void processShouldCreateRequesterNotificationForAcceptedEvent() {
+    void processShouldCreateRequesterNotificationForOwnerOfferedEvent() {
         // arrange
-        ExchangeEventPayload payload = sampleEvent("exchange.request.accepted");
+        ExchangeEventPayload payload = sampleEvent("exchange.request.owner_offered");
         payload.setInitiatorUserId(55L);
         payload.setInitiatorUsername("owner");
+        payload.setStatus("OWNER_OFFERED");
         when(processedEventRepository.existsById(payload.getEventId())).thenReturn(false);
         when(processedEventRepository.saveAndFlush(any(ProcessedEvent.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -97,10 +98,32 @@ class ExchangeEventNotificationServiceTest {
         // assert
         NotificationDeliveryCommand notification = captureDeliveryCommands().get(0);
         assertEquals(42L, notification.getUserId());
-        assertEquals(NotificationType.EXCHANGE_REQUEST_ACCEPTED, notification.getType());
-        assertEquals("Your exchange request was accepted", notification.getTitle());
+        assertEquals(NotificationType.EXCHANGE_REQUEST_OWNER_OFFERED, notification.getType());
+        assertEquals("New exchange offer", notification.getTitle());
         assertEquals(
-                "owner accepted your request to exchange \"Dune\" by Frank Herbert for \"The Left Hand of Darkness\" by Ursula K. Le Guin.",
+                "owner offered to exchange \"The Left Hand of Darkness\" by Ursula K. Le Guin for your \"Dune\" by Frank Herbert. Confirm or decline the offer.",
+                notification.getMessage()
+        );
+    }
+
+    @Test
+    void processShouldCreateOwnerNotificationForAcceptedEvent() {
+        // arrange
+        ExchangeEventPayload payload = sampleEvent("exchange.request.accepted");
+        when(processedEventRepository.existsById(payload.getEventId())).thenReturn(false);
+        when(processedEventRepository.saveAndFlush(any(ProcessedEvent.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        // act
+        exchangeEventNotificationService.process(payload);
+
+        // assert
+        NotificationDeliveryCommand notification = captureDeliveryCommands().get(0);
+        assertEquals(55L, notification.getUserId());
+        assertEquals(NotificationType.EXCHANGE_REQUEST_ACCEPTED, notification.getType());
+        assertEquals("Your exchange offer was accepted", notification.getTitle());
+        assertEquals(
+                "alice accepted the offer to exchange \"The Left Hand of Darkness\" by Ursula K. Le Guin for \"Dune\" by Frank Herbert.",
                 notification.getMessage()
         );
     }
@@ -124,7 +147,7 @@ class ExchangeEventNotificationServiceTest {
         assertEquals(NotificationType.EXCHANGE_REQUEST_DECLINED, notification.getType());
         assertEquals("Your exchange request was declined", notification.getTitle());
         assertEquals(
-                "owner declined your request to exchange \"Dune\" by Frank Herbert for \"The Left Hand of Darkness\" by Ursula K. Le Guin.",
+                "owner declined your request for \"The Left Hand of Darkness\" by Ursula K. Le Guin.",
                 notification.getMessage()
         );
     }
@@ -146,7 +169,7 @@ class ExchangeEventNotificationServiceTest {
         assertEquals(NotificationType.EXCHANGE_REQUEST_CANCELLED, notification.getType());
         assertEquals("Exchange request cancelled", notification.getTitle());
         assertEquals(
-                "alice cancelled the request to exchange \"Dune\" by Frank Herbert for your \"The Left Hand of Darkness\" by Ursula K. Le Guin.",
+                "alice cancelled the request for your \"The Left Hand of Darkness\" by Ursula K. Le Guin.",
                 notification.getMessage()
         );
     }
@@ -242,7 +265,7 @@ class ExchangeEventNotificationServiceTest {
         // assert
         NotificationDeliveryCommand notification = captureDeliveryCommands().get(0);
         assertEquals(
-                "Another reader wants to exchange book #2002 for your book #1001.",
+                "Another reader wants your book #1001.",
                 notification.getMessage()
         );
     }

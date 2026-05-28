@@ -14,15 +14,16 @@
 
 | Категория данных | Поля | Субъект данных | Сервис-владелец | Хранение | Назначение | Примечание |
 | --- | --- | --- | --- | --- | --- | --- |
-| Учетная запись и профиль | `username`, `email`, `firstName`, `lastName`, `city`, `about`, `userId` | Пользователь платформы | `user-service` | `users_db.users` | Регистрация, профиль, отображение в API | Основной источник персональных данных |
+| Учетная запись и профиль | `username`, `email`, `firstName`, `lastName`, `city`, `about`, `phoneNumber`, `userId` | Пользователь платформы | `user-service` | `users_db.users` | Регистрация, профиль, отображение в API | Основной источник персональных данных |
 | Аутентификационные данные | пароль в открытом виде только в момент ввода; bcrypt-хэш пароля | Пользователь платформы | `user-service` | `users_db.users.password` | Логин и проверка учетных данных | В коде пароль хэшируется через `BCryptPasswordEncoder` |
-| Регистрационный транзит | `username`, `email`, `firstName`, `lastName`, `city`, `about`, пароль | Новый пользователь | `auth-service` транзитно, `user-service` постоянно | HTTP запросы, затем `users_db` | Создание учетной записи | `auth-service` не хранит профильные поля как собственный источник данных |
+| Регистрационный транзит | `username`, `email`, `firstName`, `lastName`, `city`, `about`, `phoneNumber`, пароль | Новый пользователь | `auth-service` транзитно, `user-service` постоянно | HTTP запросы, затем `users_db` | Создание учетной записи | `auth-service` не хранит профильные поля как собственный источник данных |
 | Сессии и токены | `userId`, refresh token hash, даты создания/истечения/отзыва | Пользователь платформы | `auth-service` | `auth_db.refresh_tokens` | Управление сессиями, logout, logout-all | Сырые refresh-токены в БД не сохраняются |
 | Публичная проекция профиля | `id`, `username`, `city`, `about` | Пользователь платформы | `user-service` | HTTP responses `/api/v1/users/{id}`, `/api/v1/users/by-username` | Отображение публичной части профиля авторизованным пользователям | Email, firstName, lastName, roles и enabled не раскрываются |
-| Приватный профиль текущего пользователя | `id`, `username`, `email`, `firstName`, `lastName`, `city`, `about`, `roles`, `enabled`, `createdAt` | Пользователь платформы | `user-service` | HTTP response `/api/v1/users/me`, response после update собственного профиля | Просмотр и управление собственным профилем | Доступен только владельцу профиля |
+| Приватный профиль текущего пользователя | `id`, `username`, `email`, `firstName`, `lastName`, `city`, `about`, `phoneNumber`, `roles`, `enabled`, `createdAt` | Пользователь платформы | `user-service` | HTTP response `/api/v1/users/me`, response после update собственного профиля | Просмотр и управление собственным профилем | Доступен только владельцу профиля |
 | Данные владения книгой | `ownerId` | Пользователь-владелец книги | `book-service` | `books_db.books` | Привязка книги к владельцу и owner-based authorization | Само описание книги не относится к ПДн, но `ownerId` относится |
-| Сообщение обмена | `message`, `requesterId`, `ownerId`, `requestedBookId`, `offeredBookId` | Участники обмена | `exchange-service` | `exchange_db.exchange_requests` | Коммуникация в процессе обмена книгами | Сообщение может содержать персональные сведения, введенные пользователем |
-| Снимки данных обмена | `initiatorUsername`, `requestedBookTitle`, `requestedBookAuthor`, `offeredBookTitle`, `offeredBookAuthor`, `requestMessage`, `requesterId`, `ownerId` | Участники обмена | `exchange-service` | `exchange_db.outbox_events.payload` | Формирование доменных событий и уведомлений | Содержимое outbox хранится до операционного обслуживания |
+| Сообщение и условия обмена | `message`, `requesterId`, `ownerId`, `requestedBookId`, optional `offeredBookId`, статус заявки | Участники обмена | `exchange-service` | `exchange_db.exchange_requests` | Коммуникация и согласование условий обмена книгами | Сообщение может содержать персональные сведения, введенные пользователем; встречная книга появляется только после предложения владельца |
+| Контакты в сценарии обмена | `phoneNumber` заявителя и владельца | Участники обмена | `user-service` как источник, `exchange-service` только возвращает в HTTP response | HTTP response `/api/v1/exchanges/my/incoming`, `/api/v1/exchanges/my/outgoing`, response после финального accept | Связь участников после добровольной заявки и финального согласования | Владелец видит телефон заявителя после создания заявки; заявитель видит телефон владельца только после статуса `ACCEPTED`; телефоны не пишутся в `exchange_db` и outbox |
+| Снимки данных обмена | `initiatorUsername`, `requestedBookTitle`, `requestedBookAuthor`, optional `offeredBookTitle`, optional `offeredBookAuthor`, `requestMessage`, `requesterId`, `ownerId` | Участники обмена | `exchange-service` | `exchange_db.outbox_events.payload` | Формирование доменных событий и уведомлений | Содержимое outbox хранится до операционного обслуживания |
 | Уведомления | `userId`, `title`, `message`, `relatedEntityId` | Пользователь-получатель | `notification-service` | `notification_db.notifications` | Доставка in-app уведомлений | Текст уведомления может включать `username` инициатора и текст сообщения обмена |
 | Идентификаторы обработки событий | `eventId`, `eventType` | Участники обмена косвенно | `notification-service` | `notification_db.processed_events` | Идемпотентность обработки событий | Сами поля не являются ПДн, но относятся к событиям с ПДн |
 
@@ -31,14 +32,15 @@
 - пользовательские HTTP-запросы в `auth-service`, `user-service`, `book-service`, `exchange-service`;
 - внутренние вызовы `auth-service -> user-service`;
 - внутренние вызовы `exchange-service -> book-service`;
+- внутренние вызовы `exchange-service -> user-service` для условного раскрытия телефонов участников;
 - RabbitMQ-события `exchange-service -> notification-service`.
 
 ## Особенности текущей реализации
 
-- `user-service` хранит полные профильные данные и пароль в виде bcrypt-хэша;
+- `user-service` хранит полные профильные данные, телефон и пароль в виде bcrypt-хэша;
 - `auth-service` хранит только метаданные refresh-сессий и `userId`;
 - `book-service` не хранит `username` или `email`, но хранит `ownerId`;
-- `exchange-service` хранит сообщения обмена и идентификаторы участников;
+- `exchange-service` хранит сообщения обмена и идентификаторы участников, но не сохраняет телефоны участников;
 - `notification-service` хранит производный текст уведомлений, который может содержать фрагменты сообщения обмена.
 
 ## Замечания по срокам хранения

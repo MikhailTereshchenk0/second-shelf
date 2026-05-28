@@ -15,6 +15,9 @@ public class UpdateUserProfileRequest {
     @Size(max = 50)
     private String city;
 
+    @Size(max = 32)
+    private String phoneNumber;
+
     @Size(max = 1000)
     private String about;
 }

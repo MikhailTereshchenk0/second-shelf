@@ -115,6 +115,7 @@ services:
       INTERNAL_TOKEN: ${INTERNAL_TOKEN}
       JWT_SECRET: ${JWT_SECRET}
       BOOK_SERVICE_BASE_URL: http://book-service:8082
+      USER_SERVICE_BASE_URL: http://user-service:8081
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
@@ -184,6 +185,13 @@ services:
         condition: service_healthy
       notification-service:
         condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
 
 volumes:
   pgdata:

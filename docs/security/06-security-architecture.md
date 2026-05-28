@@ -107,6 +107,7 @@ flowchart LR
 
 - `auth-service -> user-service`
 - `exchange-service -> book-service`
+- `exchange-service -> user-service` для получения контактного телефона в разрешенных состояниях обмена
 
 Эти вызовы отделены от публичных API с помощью `/internal/**` и `X-Internal-Token`.
 
@@ -127,9 +128,9 @@ flowchart LR
 | Сервис | Зона владения данными | Типы данных |
 | --- | --- | --- |
 | `auth-service` | Сессии и токены | `userId`, refresh token hash, сроки действия, признаки отзыва |
-| `user-service` | Профиль пользователя | `username`, `email`, `firstName`, `lastName`, `city`, `about`, password hash, roles, enabled |
+| `user-service` | Профиль пользователя | `username`, `email`, `firstName`, `lastName`, `city`, `about`, `phoneNumber`, password hash, roles, enabled |
 | `book-service` | Каталог книг и владение | `ownerId`, сведения о книге, состояние публикации |
-| `exchange-service` | Процесс обмена | `requesterId`, `ownerId`, message, статусы, подтверждения, снимки книг |
+| `exchange-service` | Процесс обмена | `requesterId`, `ownerId`, message, статусы, подтверждения, снимки книг; телефоны получает из `user-service` только для HTTP-ответов и не хранит |
 | `notification-service` | Производные уведомления | `userId`, title, message, relatedEntityId, read status |
 
 ## Прикладные меры безопасности

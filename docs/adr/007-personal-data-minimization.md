@@ -2,7 +2,7 @@
 
 ## Context
 
-Second Shelf processes ordinary personal data: username, email, profile fields, internal user ids, exchange messages, and notification content. It also processes authentication data such as passwords at input time, password hashes, JWTs, refresh tokens, and internal service tokens.
+Second Shelf processes ordinary personal data: username, email, profile fields, phone number, internal user ids, exchange messages, and notification content. It also processes authentication data such as passwords at input time, password hashes, JWTs, refresh tokens, and internal service tokens.
 
 The implementation avoids making every service a full personal data owner. For example, `auth-service` stores refresh session metadata and `userId`, while `user-service` remains the source of profile data.
 
@@ -14,7 +14,7 @@ Current examples:
 
 - `auth-service` stores refresh token hashes and session metadata, not full profiles;
 - `book-service` stores `ownerId`, not owner email or profile fields;
-- `exchange-service` stores participant ids, optional request message, and book/user snapshots needed for exchange history and notification payloads;
+- `exchange-service` stores participant ids, optional request message, and book/user snapshots needed for exchange history and notification payloads, but resolves phone numbers from `user-service` only for allowed HTTP responses and does not persist them;
 - `notification-service` persists derived in-app notification text for the recipient and processed event ids for idempotency.
 
 ## Consequences

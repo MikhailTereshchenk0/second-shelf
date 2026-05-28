@@ -1,12 +1,16 @@
 package com.secondshelf.bookservice.internal;
 
 import com.secondshelf.bookservice.entity.Book;
+import com.secondshelf.bookservice.entity.BookStatus;
+import com.secondshelf.bookservice.entity.BookVisibility;
 import com.secondshelf.bookservice.exception.BookNotFoundException;
 import com.secondshelf.bookservice.repository.BookRepository;
 import com.secondshelf.bookservice.service.BookLifecyclePolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -19,6 +23,15 @@ public class InternalBookService {
     public Book get(Long bookId) {
         return bookRepository.findById(bookId)
                 .orElseThrow(() -> new BookNotFoundException(bookId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<Book> getAvailablePublicBooksByOwner(Long ownerId) {
+        return bookRepository.findAllByOwnerIdAndVisibilityAndStatusOrderByCreatedAtDesc(
+                ownerId,
+                BookVisibility.PUBLIC,
+                BookStatus.AVAILABLE
+        );
     }
 
     public Book reserve(Long bookId) {

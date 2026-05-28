@@ -4,12 +4,12 @@
 
 К ключевым активам `Second Shelf` относятся:
 
-- профильные данные пользователей в `user-service`;
+- профильные данные пользователей в `user-service`, включая контактный телефон;
 - bcrypt-хэши паролей;
 - refresh-сессии в `auth-service`;
 - JWT и `INTERNAL_TOKEN` как средства доступа;
 - данные о владении книгами;
-- сообщения и история обменов в `exchange-service`;
+- сообщения, условия и история обменов в `exchange-service`;
 - уведомления в `notification-service`;
 - outbox-события, RabbitMQ queue и DLQ;
 - журналы событий и метрики.
@@ -30,7 +30,7 @@
 | Перехват JWT или refresh-токена в открытом канале | `auth-service`, все публичные API | Подпись JWT, ротация refresh-токенов, отзыв сессий, хранение только хэша refresh-токена | TLS, безопасная публикация API, защита клиентского хранения токенов |
 | Подбор паролей и credential stuffing | `auth-service`, `user-service`, `api-gateway` | bcrypt-хэширование, password policy, запрет логина отключенным пользователям, in-memory rate limiting для auth endpoint'ов | distributed rate limiting на gateway/ingress/WAF, антибот-защита, мониторинг аномалий |
 | Несанкционированный доступ к чужому профилю, книге, обмену или уведомлению | `user-service`, `book-service`, `exchange-service`, `notification-service` | owner-based authorization, participant-based authorization, `ROLE_ADMIN` | регулярный аудит прав, негативные тесты на авторизацию, review production-ролей |
-| Компрометация внутреннего токена сервис-сервис | `user-service`, `book-service` | Отдельные `/internal/**`, проверка `X-Internal-Token`, скрытие из Swagger | secret manager, регулярная ротация, mTLS или сегментация между сервисами |
+| Компрометация внутреннего токена сервис-сервис | `user-service`, `book-service`, `exchange-service` как потребитель внутренних API | Отдельные `/internal/**`, проверка `X-Internal-Token`, скрытие из Swagger | secret manager, регулярная ротация, mTLS или сегментация между сервисами |
 | Боковое перемещение после компрометации одной БД | PostgreSQL контур | Изолированные БД по сервисам | отдельные пользователи БД, network ACL, шифрование дисков и backup storage |
 | Потеря или дублирование событий обмена | `exchange-service`, RabbitMQ, `notification-service` | outbox, broker confirms, retry, DLQ, idempotency через `processed_events` | алерты по DLQ и `TERMINAL_FAILED`, процедуры re-drive из DLQ |
 | Раскрытие служебной информации через Swagger, Actuator или метрики | все сервисы, особенно `exchange-service` и `notification-service` | `show-details: never` для публичного health | ограничение публикации management endpoints через ingress/firewall |

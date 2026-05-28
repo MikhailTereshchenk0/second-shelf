@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 @Builder
@@ -20,6 +21,9 @@ public class ExchangeResponse {
     private Long requesterId;
     private String ownerUsernameSnapshot;
     private String requesterUsernameSnapshot;
+    private String ownerPhoneNumber;
+    private String requesterPhoneNumber;
+    private List<BookSummaryResponse> requesterAvailableBooks;
     private ExchangeStatus status;
     private String message;
     private LocalDateTime ownerCompletionConfirmedAt;

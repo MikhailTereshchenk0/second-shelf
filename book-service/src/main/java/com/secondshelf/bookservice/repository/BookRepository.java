@@ -13,11 +13,18 @@ import jakarta.persistence.LockModeType;
 
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface BookRepository extends JpaRepository<Book, Long> {
 
     Page<Book> findAllByOwnerId(Long ownerId, Pageable pageable);
+
+    List<Book> findAllByOwnerIdAndVisibilityAndStatusOrderByCreatedAtDesc(
+            Long ownerId,
+            BookVisibility visibility,
+            BookStatus status
+    );
 
     Page<Book> findAllByVisibilityAndStatusIn(
             BookVisibility visibility,

@@ -1,9 +1,13 @@
 package com.secondshelf.exchangeservice.service;
 
 import com.secondshelf.exchangeservice.client.BookServiceClient;
+import com.secondshelf.exchangeservice.client.UserServiceClient;
 import com.secondshelf.exchangeservice.client.dto.BookDto;
+import com.secondshelf.exchangeservice.client.dto.UserContactDto;
+import com.secondshelf.exchangeservice.dto.BookSummaryResponse;
 import com.secondshelf.exchangeservice.dto.CreateExchangeRequest;
 import com.secondshelf.exchangeservice.dto.ExchangeResponse;
+import com.secondshelf.exchangeservice.dto.OwnerOfferRequest;
 import com.secondshelf.exchangeservice.entity.ExchangeRequest;
 import com.secondshelf.exchangeservice.entity.ExchangeStatus;
 import com.secondshelf.exchangeservice.exception.ExchangeBadRequestException;
@@ -51,6 +55,13 @@ public class ExchangeService {
 
     private static final List<ExchangeStatus> ACTIVE_EXCHANGE_STATUSES = List.of(
             ExchangeStatus.PENDING,
+            ExchangeStatus.OWNER_OFFERED,
+            ExchangeStatus.ACCEPTED,
+            ExchangeStatus.COMPLETION_PENDING,
+            ExchangeStatus.REPAIR_REQUIRED
+    );
+
+    private static final List<ExchangeStatus> RESERVED_EXCHANGE_STATUSES = List.of(
             ExchangeStatus.ACCEPTED,
             ExchangeStatus.COMPLETION_PENDING,
             ExchangeStatus.REPAIR_REQUIRED
@@ -63,6 +74,7 @@ public class ExchangeService {
 
     private final ExchangeRepository exchangeRepository;
     private final BookServiceClient bookServiceClient;
+    private final UserServiceClient userServiceClient;
     private final ExchangeOutboxService exchangeOutboxService;
 
     public ExchangeResponse create(CreateExchangeRequest req, UserPrincipal principal) {
@@ -84,7 +96,7 @@ public class ExchangeService {
                                 "Idempotency-Key was already used with a different exchange request payload."
                         );
                     }
-                    ExchangeResponse response = toResponse(existingRequest);
+                    ExchangeResponse response = toResponse(existingRequest, requesterId);
                     AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_CREATE", AuditOutcome.SUCCESS)
                             .actorUserId(requesterId)
                             .targetUserId(response.getOwnerId())
@@ -96,23 +108,13 @@ public class ExchangeService {
                 }
             }
 
-            if (req.getRequestedBookId().equals(req.getOfferedBookId())) {
-                throw new ExchangeBadRequestException(
-                        "INVALID_EXCHANGE_BOOK_SELECTION",
-                        "Requested book and offered book must be different."
-                );
-            }
-
             BookDto requestedBook = getRequestedBook(req.getRequestedBookId());
-            BookDto offeredBook = getOfferedBook(req.getOfferedBookId());
 
             validateRequestedBook(requestedBook, requesterId);
-            validateOfferedBook(offeredBook, requesterId);
 
-            if (exchangeRepository.existsByRequesterIdAndRequestedBookIdAndOfferedBookIdAndStatusIn(
+            if (exchangeRepository.existsByRequesterIdAndRequestedBookIdAndStatusIn(
                     requesterId,
                     req.getRequestedBookId(),
-                    req.getOfferedBookId(),
                     ACTIVE_EXCHANGE_STATUSES
             )) {
                 throw new ExchangeConflictException(
@@ -126,9 +128,6 @@ public class ExchangeService {
                             .requestedBookId(req.getRequestedBookId())
                             .requestedBookTitle(requestedBook.getTitle())
                             .requestedBookAuthor(requestedBook.getAuthor())
-                            .offeredBookId(req.getOfferedBookId())
-                            .offeredBookTitle(offeredBook.getTitle())
-                            .offeredBookAuthor(offeredBook.getAuthor())
                             .ownerId(requestedBook.getOwnerId())
                             .requesterId(requesterId)
                             .requesterUsernameSnapshot(principal != null ? principal.username() : null)
@@ -144,7 +143,7 @@ public class ExchangeService {
                     eventContext(principal)
             );
 
-            ExchangeResponse response = toResponse(saved);
+            ExchangeResponse response = toResponse(saved, requesterId);
             AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_CREATE", AuditOutcome.SUCCESS)
                     .actorUserId(requesterId)
                     .targetUserId(response.getOwnerId())
@@ -165,14 +164,75 @@ public class ExchangeService {
 
     @Transactional(readOnly = true)
     public Page<ExchangeResponse> myOutgoing(UserPrincipal principal, Pageable pageable) {
-        return exchangeRepository.findAllByRequesterId(requireUserId(principal), pageable)
-                .map(this::toResponse);
+        Long requesterId = requireUserId(principal);
+        return exchangeRepository.findAllByRequesterId(requesterId, pageable)
+                .map(exchangeRequest -> toResponse(exchangeRequest, requesterId));
     }
 
     @Transactional(readOnly = true)
     public Page<ExchangeResponse> myIncoming(UserPrincipal principal, Pageable pageable) {
-        return exchangeRepository.findAllByOwnerId(requireUserId(principal), pageable)
-                .map(this::toResponse);
+        Long ownerId = requireUserId(principal);
+        return exchangeRepository.findAllByOwnerId(ownerId, pageable)
+                .map(exchangeRequest -> toResponse(exchangeRequest, ownerId));
+    }
+
+    public ExchangeResponse offer(Long exchangeId, OwnerOfferRequest offerRequest, UserPrincipal principal) {
+        Long me = requireUserId(principal);
+
+        try {
+            ExchangeRequest req = findExchangeRequestForUpdate(exchangeId);
+
+            if (!me.equals(req.getOwnerId())) {
+                throw new ExchangeForbiddenException("ONLY_OWNER_CAN_OFFER", "Only owner can make a counter offer.");
+            }
+            rejectParticipantActionWhenRepairRequired(req);
+            if (req.getStatus() != ExchangeStatus.PENDING) {
+                throw new ExchangeConflictException(
+                        "INVALID_EXCHANGE_STATUS_TRANSITION",
+                        "Only PENDING request can receive an owner offer."
+                );
+            }
+
+            if (Objects.equals(req.getRequestedBookId(), offerRequest.getOfferedBookId())) {
+                throw new ExchangeBadRequestException(
+                        "INVALID_EXCHANGE_BOOK_SELECTION",
+                        "Requested book and offered book must be different."
+                );
+            }
+
+            BookDto offeredBook = getOfferedBook(offerRequest.getOfferedBookId());
+            validateOfferedBook(offeredBook, req.getRequesterId());
+
+            req.setOfferedBookId(offeredBook.getId());
+            req.setOfferedBookTitle(offeredBook.getTitle());
+            req.setOfferedBookAuthor(offeredBook.getAuthor());
+            req.setStatus(ExchangeStatus.OWNER_OFFERED);
+
+            populateOwnerUsernameSnapshotIfMissing(req, principal);
+            ExchangeRequest saved = exchangeRepository.save(req);
+            exchangeOutboxService.recordExchangeEvent(
+                    ExchangeEventType.EXCHANGE_REQUEST_OWNER_OFFERED,
+                    saved,
+                    eventContext(principal)
+            );
+
+            ExchangeResponse response = toResponse(saved, me);
+            AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_OWNER_OFFER", AuditOutcome.SUCCESS)
+                    .actorUserId(me)
+                    .targetUserId(response.getRequesterId())
+                    .entityId(exchangeId)
+                    .attribute("status", response.getStatus())
+                    .build());
+            return response;
+        } catch (RuntimeException ex) {
+            AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_OWNER_OFFER", AuditOutcome.FAILURE)
+                    .actorUserId(me)
+                    .entityId(exchangeId)
+                    .reason(ex.getMessage())
+                    .errorCode(resolveErrorCode(ex))
+                    .build());
+            throw ex;
+        }
     }
 
     public ExchangeResponse accept(Long exchangeId, UserPrincipal principal) {
@@ -181,16 +241,27 @@ public class ExchangeService {
         try {
             ExchangeRequest req = findExchangeRequestForUpdate(exchangeId);
 
-            if (!me.equals(req.getOwnerId())) {
-                throw new ExchangeForbiddenException("ONLY_OWNER_CAN_ACCEPT", "Only owner can accept.");
+            if (!me.equals(req.getRequesterId())) {
+                throw new ExchangeForbiddenException("ONLY_REQUESTER_CAN_ACCEPT", "Only requester can accept owner offer.");
             }
             rejectParticipantActionWhenRepairRequired(req);
-            if (req.getStatus() != ExchangeStatus.PENDING) {
+            if (req.getStatus() != ExchangeStatus.OWNER_OFFERED) {
                 throw new ExchangeConflictException(
                         "INVALID_EXCHANGE_STATUS_TRANSITION",
-                        "Only PENDING request can be accepted."
+                        "Only OWNER_OFFERED request can be accepted by requester."
                 );
             }
+            if (req.getOfferedBookId() == null) {
+                throw new ExchangeConflictException(
+                        "OWNER_OFFER_BOOK_MISSING",
+                        "Owner offer must contain offered book."
+                );
+            }
+
+            BookDto requestedBook = getRequestedBook(req.getRequestedBookId());
+            BookDto offeredBook = getOfferedBook(req.getOfferedBookId());
+            validateRequestedBook(requestedBook, req.getRequesterId());
+            validateOfferedBook(offeredBook, req.getRequesterId());
 
             List<Long> bookIds = List.of(req.getRequestedBookId(), req.getOfferedBookId());
 
@@ -202,7 +273,7 @@ public class ExchangeService {
             if (exchangeRepository.existsAnotherByStatusesAndBookIds(
                     req.getId(),
                     bookIds,
-                    List.of(ExchangeStatus.ACCEPTED, ExchangeStatus.COMPLETION_PENDING, ExchangeStatus.REPAIR_REQUIRED)
+                    RESERVED_EXCHANGE_STATUSES
             )) {
                 throw new ExchangeConflictException(
                         "BOOK_ALREADY_IN_ACCEPTED_EXCHANGE",
@@ -210,7 +281,7 @@ public class ExchangeService {
                 );
             }
 
-            populateOwnerUsernameSnapshotIfMissing(req, principal);
+            populateRequesterUsernameSnapshotIfMissing(req, principal);
             try {
                 reserveBothBooks(req);
             } catch (ExchangeRepairRequiredException ex) {
@@ -218,7 +289,7 @@ public class ExchangeService {
             }
 
             req.setStatus(ExchangeStatus.ACCEPTED);
-            List<ExchangeRequest> declinedRequests = declineConflictingPendingRequests(req.getId(), activeRequests);
+            List<ExchangeRequest> declinedRequests = declineConflictingActiveOffers(req.getId(), activeRequests);
             ExchangeRequest saved = exchangeRepository.save(req);
 
             ExchangeEventContext eventContext = eventContext(principal);
@@ -227,10 +298,10 @@ public class ExchangeService {
                     exchangeOutboxService.recordExchangeEvent(ExchangeEventType.EXCHANGE_REQUEST_DECLINED, declinedRequest, eventContext)
             );
 
-            ExchangeResponse response = toResponse(saved);
+            ExchangeResponse response = toResponse(saved, me);
             AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_ACCEPT", AuditOutcome.SUCCESS)
                     .actorUserId(me)
-                    .targetUserId(response.getRequesterId())
+                    .targetUserId(response.getOwnerId())
                     .entityId(exchangeId)
                     .attribute("status", response.getStatus())
                     .build());
@@ -272,7 +343,7 @@ public class ExchangeService {
                     eventContext(principal)
             );
 
-            ExchangeResponse response = toResponse(saved);
+            ExchangeResponse response = toResponse(saved, me);
             AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_DECLINE", AuditOutcome.SUCCESS)
                     .actorUserId(me)
                     .targetUserId(response.getRequesterId())
@@ -301,11 +372,13 @@ public class ExchangeService {
                 throw new ExchangeForbiddenException("ONLY_REQUESTER_CAN_CANCEL", "Only requester can cancel.");
             }
             rejectParticipantActionWhenRepairRequired(req);
-            if ((req.getStatus() != ExchangeStatus.PENDING && req.getStatus() != ExchangeStatus.ACCEPTED)
+            if ((req.getStatus() != ExchangeStatus.PENDING
+                    && req.getStatus() != ExchangeStatus.OWNER_OFFERED
+                    && req.getStatus() != ExchangeStatus.ACCEPTED)
                     || req.hasAnyCompletionConfirmation()) {
                 throw new ExchangeConflictException(
                         "INVALID_EXCHANGE_STATUS_TRANSITION",
-                        "Only PENDING or ACCEPTED request without completion confirmation can be canceled."
+                        "Only PENDING, OWNER_OFFERED, or ACCEPTED request without completion confirmation can be canceled."
                 );
             }
 
@@ -327,7 +400,7 @@ public class ExchangeService {
                     eventContext(principal)
             );
 
-            ExchangeResponse response = toResponse(saved);
+            ExchangeResponse response = toResponse(saved, me);
             AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_CANCEL", AuditOutcome.SUCCESS)
                     .actorUserId(me)
                     .targetUserId(response.getOwnerId())
@@ -337,6 +410,51 @@ public class ExchangeService {
             return response;
         } catch (RuntimeException ex) {
             AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_CANCEL", AuditOutcome.FAILURE)
+                    .actorUserId(me)
+                    .entityId(exchangeId)
+                    .reason(ex.getMessage())
+                    .errorCode(resolveErrorCode(ex))
+                    .build());
+            throw ex;
+        }
+    }
+
+    public ExchangeResponse declineOffer(Long exchangeId, UserPrincipal principal) {
+        Long me = requireUserId(principal);
+
+        try {
+            ExchangeRequest req = findExchangeRequestForUpdate(exchangeId);
+
+            if (!me.equals(req.getRequesterId())) {
+                throw new ExchangeForbiddenException("ONLY_REQUESTER_CAN_DECLINE_OFFER", "Only requester can decline owner offer.");
+            }
+            rejectParticipantActionWhenRepairRequired(req);
+            if (req.getStatus() != ExchangeStatus.OWNER_OFFERED) {
+                throw new ExchangeConflictException(
+                        "INVALID_EXCHANGE_STATUS_TRANSITION",
+                        "Only OWNER_OFFERED request can be declined by requester."
+                );
+            }
+
+            populateRequesterUsernameSnapshotIfMissing(req, principal);
+            req.setStatus(ExchangeStatus.CANCELLED);
+            ExchangeRequest saved = exchangeRepository.save(req);
+            exchangeOutboxService.recordExchangeEvent(
+                    ExchangeEventType.EXCHANGE_REQUEST_CANCELLED,
+                    saved,
+                    eventContext(principal)
+            );
+
+            ExchangeResponse response = toResponse(saved, me);
+            AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_DECLINE_OWNER_OFFER", AuditOutcome.SUCCESS)
+                    .actorUserId(me)
+                    .targetUserId(response.getOwnerId())
+                    .entityId(exchangeId)
+                    .attribute("status", response.getStatus())
+                    .build());
+            return response;
+        } catch (RuntimeException ex) {
+            AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_DECLINE_OWNER_OFFER", AuditOutcome.FAILURE)
                     .actorUserId(me)
                     .entityId(exchangeId)
                     .reason(ex.getMessage())
@@ -366,7 +484,7 @@ public class ExchangeService {
                 );
             }
             if (req.hasCompletionConfirmationFrom(me)) {
-                ExchangeResponse response = toResponse(req);
+                ExchangeResponse response = toResponse(req, me);
                 AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_COMPLETE", AuditOutcome.SUCCESS)
                         .actorUserId(me)
                         .targetUserId(resolveCounterpartyUserId(req, me))
@@ -389,7 +507,7 @@ public class ExchangeService {
                         eventContext(principal, me)
                 );
 
-                ExchangeResponse response = toResponse(saved);
+                ExchangeResponse response = toResponse(saved, me);
                 AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_COMPLETE", AuditOutcome.SUCCESS)
                         .actorUserId(me)
                         .targetUserId(resolveCounterpartyUserId(saved, me))
@@ -414,7 +532,7 @@ public class ExchangeService {
                     eventContext(principal, me)
             );
 
-            ExchangeResponse response = toResponse(saved);
+            ExchangeResponse response = toResponse(saved, me);
             AUDIT_LOGGER.log(AuditEvent.builder("EXCHANGE_COMPLETE", AuditOutcome.SUCCESS)
                     .actorUserId(me)
                     .targetUserId(resolveCounterpartyUserId(saved, me))
@@ -566,18 +684,18 @@ public class ExchangeService {
         return rollbackFailedBookIds;
     }
 
-    private List<ExchangeRequest> declineConflictingPendingRequests(Long acceptedExchangeId, List<ExchangeRequest> activeRequests) {
-        List<ExchangeRequest> conflictingPendingRequests = activeRequests.stream()
+    private List<ExchangeRequest> declineConflictingActiveOffers(Long acceptedExchangeId, List<ExchangeRequest> activeRequests) {
+        List<ExchangeRequest> conflictingRequests = activeRequests.stream()
                 .filter(r -> !r.getId().equals(acceptedExchangeId))
-                .filter(r -> r.getStatus() == ExchangeStatus.PENDING)
+                .filter(r -> r.getStatus() == ExchangeStatus.PENDING || r.getStatus() == ExchangeStatus.OWNER_OFFERED)
                 .toList();
 
-        if (conflictingPendingRequests.isEmpty()) {
+        if (conflictingRequests.isEmpty()) {
             return List.of();
         }
 
-        conflictingPendingRequests.forEach(r -> r.setStatus(ExchangeStatus.DECLINED));
-        return exchangeRepository.saveAll(conflictingPendingRequests);
+        conflictingRequests.forEach(r -> r.setStatus(ExchangeStatus.DECLINED));
+        return exchangeRepository.saveAll(conflictingRequests);
     }
 
     private void completeBothBooks(ExchangeRequest req) {
@@ -730,7 +848,6 @@ public class ExchangeService {
 
     private boolean hasSameCreatePayload(ExchangeRequest existingRequest, CreateExchangeRequest req) {
         return Objects.equals(existingRequest.getRequestedBookId(), req.getRequestedBookId())
-                && Objects.equals(existingRequest.getOfferedBookId(), req.getOfferedBookId())
                 && Objects.equals(existingRequest.getMessage(), req.getMessage());
     }
 
@@ -815,7 +932,7 @@ public class ExchangeService {
     private void repairReservationRollback(ExchangeRequest req) {
         ensureBookAvailable(req.getRequestedBookId());
         ensureBookAvailable(req.getOfferedBookId());
-        req.setStatus(ExchangeStatus.PENDING);
+        req.setStatus(req.getOfferedBookId() == null ? ExchangeStatus.PENDING : ExchangeStatus.OWNER_OFFERED);
     }
 
     private void ensureBookExchangedAndPrivate(Long bookId) {
@@ -941,7 +1058,7 @@ public class ExchangeService {
                 .attribute("status", saved.getStatus())
                 .build());
 
-        return toResponse(saved);
+        return toResponse(saved, actorUserId);
     }
 
     private void populateOwnerUsernameSnapshotIfMissing(ExchangeRequest exchangeRequest, UserPrincipal principal) {
@@ -973,7 +1090,11 @@ public class ExchangeService {
     }
 
     private ExchangeResponse toResponse(ExchangeRequest r) {
-        return ExchangeResponse.builder()
+        return toResponse(r, null);
+    }
+
+    private ExchangeResponse toResponse(ExchangeRequest r, Long viewerUserId) {
+        ExchangeResponse.ExchangeResponseBuilder builder = ExchangeResponse.builder()
                 .id(r.getId())
                 .requestedBookId(r.getRequestedBookId())
                 .requestedBookTitle(r.getRequestedBookTitle())
@@ -994,8 +1115,49 @@ public class ExchangeService {
                 .repairAttempts(r.getRepairAttempts())
                 .lastRepairAttemptAt(r.getLastRepairAttemptAt())
                 .createdAt(r.getCreatedAt())
-                .updatedAt(r.getUpdatedAt())
+                .updatedAt(r.getUpdatedAt());
+
+        if (viewerUserId != null && r.isOwnerParticipant(viewerUserId)) {
+            builder.requesterPhoneNumber(resolvePhoneNumber(r.getRequesterId()));
+            builder.requesterAvailableBooks(resolveAvailablePublicBooks(r.getRequesterId()));
+        }
+        if (viewerUserId != null && r.isRequesterParticipant(viewerUserId) && canRequesterSeeOwnerPhone(r)) {
+            builder.ownerPhoneNumber(resolvePhoneNumber(r.getOwnerId()));
+        }
+
+        return builder.build();
+    }
+
+    private String resolvePhoneNumber(Long userId) {
+        UserContactDto contact = userServiceClient.getContact(userId);
+        return contact != null ? contact.getPhoneNumber() : null;
+    }
+
+    private List<BookSummaryResponse> resolveAvailablePublicBooks(Long ownerId) {
+        List<BookDto> books = bookServiceClient.getAvailablePublicBooksByOwner(ownerId);
+        if (books == null) {
+            return List.of();
+        }
+        return books.stream()
+                .map(this::toBookSummary)
+                .toList();
+    }
+
+    private BookSummaryResponse toBookSummary(BookDto book) {
+        return BookSummaryResponse.builder()
+                .id(book.getId())
+                .ownerId(book.getOwnerId())
+                .title(book.getTitle())
+                .author(book.getAuthor())
+                .visibility(book.getVisibility())
+                .status(book.getStatus())
                 .build();
+    }
+
+    private boolean canRequesterSeeOwnerPhone(ExchangeRequest request) {
+        return request.getStatus() == ExchangeStatus.ACCEPTED
+                || request.getStatus() == ExchangeStatus.COMPLETION_PENDING
+                || request.getStatus() == ExchangeStatus.COMPLETED;
     }
 
     private Long resolveCounterpartyUserId(ExchangeRequest exchangeRequest, Long actorUserId) {

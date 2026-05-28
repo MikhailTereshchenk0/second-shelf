@@ -3,6 +3,7 @@ package com.secondshelf.notificationservice.entity;
 public enum NotificationType {
     GENERIC,
     EXCHANGE_REQUEST_CREATED,
+    EXCHANGE_REQUEST_OWNER_OFFERED,
     EXCHANGE_REQUEST_ACCEPTED,
     EXCHANGE_REQUEST_DECLINED,
     EXCHANGE_REQUEST_CANCELLED,

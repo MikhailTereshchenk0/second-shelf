@@ -54,6 +54,7 @@ class InternalUserControllerTest {
                 "Alice",
                 "Reader",
                 "Minsk",
+                "+375291112233",
                 "About",
                 "weakpass12"
         );
@@ -76,6 +77,7 @@ class InternalUserControllerTest {
                 "Alice",
                 "Reader",
                 "Minsk",
+                "+375291112233",
                 "About",
                 "Str0ng!Pwd99"
         );
@@ -86,6 +88,7 @@ class InternalUserControllerTest {
                 .email("reader@example.com")
                 .firstName("Alice")
                 .lastName("Reader")
+                .phoneNumber("+375291112233")
                 .roles(EnumSet.of(Role.ROLE_USER))
                 .enabled(true)
                 .build();
@@ -100,6 +103,7 @@ class InternalUserControllerTest {
                 .andExpect(jsonPath("$.id").value(10))
                 .andExpect(jsonPath("$.username").value("alice"))
                 .andExpect(jsonPath("$.email").value("reader@example.com"))
+                .andExpect(jsonPath("$.phoneNumber").value("+375291112233"))
                 .andExpect(jsonPath("$.enabled").value(true));
     }
 
@@ -111,6 +115,7 @@ class InternalUserControllerTest {
                 "Alice",
                 "Reader",
                 "Minsk",
+                "+375291112233",
                 "About",
                 "Sup3r!readerPwd"
         );
@@ -148,6 +153,26 @@ class InternalUserControllerTest {
     }
 
     @Test
+    void contactShouldReturnPhoneNumberWhenInternalTokenIsValid() throws Exception {
+        User user = User.builder()
+                .id(6L)
+                .username("requester")
+                .phoneNumber("+375291112244")
+                .enabled(true)
+                .roles(EnumSet.of(Role.ROLE_USER))
+                .build();
+
+        when(userRepository.findById(6L)).thenReturn(Optional.of(user));
+
+        mockMvc.perform(get("/internal/users/6/contact")
+                        .header(InternalTokenFilter.HEADER, "test-internal-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(6))
+                .andExpect(jsonPath("$.username").value("requester"))
+                .andExpect(jsonPath("$.phoneNumber").value("+375291112244"));
+    }
+
+    @Test
     void claimsShouldReturnUnauthorizedWhenInternalTokenIsMissing() throws Exception {
         // act + assert
         mockMvc.perform(get("/internal/users/5/claims"))
@@ -166,6 +191,7 @@ class InternalUserControllerTest {
             String firstName,
             String lastName,
             String city,
+            String phoneNumber,
             String about,
             String password
     ) {

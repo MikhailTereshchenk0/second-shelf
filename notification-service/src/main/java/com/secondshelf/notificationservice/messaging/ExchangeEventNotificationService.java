@@ -84,10 +84,17 @@ public class ExchangeEventNotificationService {
                     buildCreatedMessage(eventPayload),
                     eventPayload
             ));
-            case EXCHANGE_REQUEST_ACCEPTED -> List.of(buildNotificationCommand(
+            case EXCHANGE_REQUEST_OWNER_OFFERED -> List.of(buildNotificationCommand(
                     eventPayload.getRequesterId(),
+                    NotificationType.EXCHANGE_REQUEST_OWNER_OFFERED,
+                    "New exchange offer",
+                    buildOwnerOfferedMessage(eventPayload),
+                    eventPayload
+            ));
+            case EXCHANGE_REQUEST_ACCEPTED -> List.of(buildNotificationCommand(
+                    eventPayload.getOwnerId(),
                     NotificationType.EXCHANGE_REQUEST_ACCEPTED,
-                    "Your exchange request was accepted",
+                    "Your exchange offer was accepted",
                     buildAcceptedMessage(eventPayload),
                     eventPayload
             ));
@@ -133,37 +140,40 @@ public class ExchangeEventNotificationService {
 
     private String buildCreatedMessage(ExchangeEventPayload eventPayload) {
         String message = resolveActorLabel(eventPayload, "Another reader")
-                + " wants to exchange "
-                + formatBook(eventPayload.getOfferedBookTitle(), eventPayload.getOfferedBookAuthor(), eventPayload.getOfferedBookId())
-                + " for your "
+                + " wants your "
                 + formatBook(eventPayload.getRequestedBookTitle(), eventPayload.getRequestedBookAuthor(), eventPayload.getRequestedBookId())
                 + ".";
         return appendRequestMessage(message, eventPayload.getRequestMessage());
     }
 
-    private String buildAcceptedMessage(ExchangeEventPayload eventPayload) {
+    private String buildOwnerOfferedMessage(ExchangeEventPayload eventPayload) {
         return resolveActorLabel(eventPayload, "The book owner")
-                + " accepted your request to exchange "
-                + formatBook(eventPayload.getOfferedBookTitle(), eventPayload.getOfferedBookAuthor(), eventPayload.getOfferedBookId())
-                + " for "
+                + " offered to exchange "
                 + formatBook(eventPayload.getRequestedBookTitle(), eventPayload.getRequestedBookAuthor(), eventPayload.getRequestedBookId())
+                + " for your "
+                + formatBook(eventPayload.getOfferedBookTitle(), eventPayload.getOfferedBookAuthor(), eventPayload.getOfferedBookId())
+                + ". Confirm or decline the offer.";
+    }
+
+    private String buildAcceptedMessage(ExchangeEventPayload eventPayload) {
+        return resolveActorLabel(eventPayload, "The requester")
+                + " accepted the offer to exchange "
+                + formatBook(eventPayload.getRequestedBookTitle(), eventPayload.getRequestedBookAuthor(), eventPayload.getRequestedBookId())
+                + " for "
+                + formatBook(eventPayload.getOfferedBookTitle(), eventPayload.getOfferedBookAuthor(), eventPayload.getOfferedBookId())
                 + ".";
     }
 
     private String buildDeclinedMessage(ExchangeEventPayload eventPayload) {
         return resolveActorLabel(eventPayload, "The book owner")
-                + " declined your request to exchange "
-                + formatBook(eventPayload.getOfferedBookTitle(), eventPayload.getOfferedBookAuthor(), eventPayload.getOfferedBookId())
-                + " for "
+                + " declined your request for "
                 + formatBook(eventPayload.getRequestedBookTitle(), eventPayload.getRequestedBookAuthor(), eventPayload.getRequestedBookId())
                 + ".";
     }
 
     private String buildCancelledMessage(ExchangeEventPayload eventPayload) {
         return resolveActorLabel(eventPayload, "Another reader")
-                + " cancelled the request to exchange "
-                + formatBook(eventPayload.getOfferedBookTitle(), eventPayload.getOfferedBookAuthor(), eventPayload.getOfferedBookId())
-                + " for your "
+                + " cancelled the request for your "
                 + formatBook(eventPayload.getRequestedBookTitle(), eventPayload.getRequestedBookAuthor(), eventPayload.getRequestedBookId())
                 + ".";
     }
@@ -291,12 +301,19 @@ public class ExchangeEventNotificationService {
                     "Requested book id must not be null."
             );
         }
-        if (eventPayload.getOfferedBookId() == null) {
+        if (eventPayload.getOfferedBookId() == null && requiresOfferedBook(eventPayload.getEventType())) {
             throw new NotificationBadRequestException(
                     "INVALID_EXCHANGE_EVENT",
                     "Offered book id must not be null."
             );
         }
+    }
+
+    private boolean requiresOfferedBook(String eventType) {
+        return ExchangeEventType.EXCHANGE_REQUEST_OWNER_OFFERED.getValue().equals(eventType)
+                || ExchangeEventType.EXCHANGE_REQUEST_ACCEPTED.getValue().equals(eventType)
+                || ExchangeEventType.EXCHANGE_REQUEST_COMPLETION_CONFIRMED.getValue().equals(eventType)
+                || ExchangeEventType.EXCHANGE_REQUEST_COMPLETED.getValue().equals(eventType);
     }
 
     private String resolveEventType(ExchangeEventPayload eventPayload) {

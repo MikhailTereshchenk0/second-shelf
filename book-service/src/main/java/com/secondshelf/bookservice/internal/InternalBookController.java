@@ -6,6 +6,8 @@ import io.swagger.v3.oas.annotations.Hidden;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @Hidden
 @RestController
 @RequestMapping("/internal/books")
@@ -17,6 +19,14 @@ public class InternalBookController {
     @GetMapping("/{id}")
     public BookResponse get(@PathVariable Long id) {
         return toResponse(internalBookService.get(id));
+    }
+
+    @GetMapping("/owners/{ownerId}/available-public")
+    public List<BookResponse> availablePublicByOwner(@PathVariable Long ownerId) {
+        return internalBookService.getAvailablePublicBooksByOwner(ownerId)
+                .stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     @PostMapping("/{id}/reserve")
