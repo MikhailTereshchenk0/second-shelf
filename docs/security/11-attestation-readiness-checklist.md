@@ -10,7 +10,7 @@
 
 | Контроль | Текущее состояние | Доказательство в репозитории |
 | --- | --- | --- |
-| Personal data minimization | Данные разделены по доменам; `auth-service` хранит refresh metadata и `userId`, `book-service` хранит `ownerId`, а не профиль; `notification-service` не обращается к профилям и книгам для построения текста | `docs/security/03-personal-data-register.md`, ADR 007 |
+| Personal data minimization | Данные разделены по доменам; `auth-service` хранит refresh metadata и `userId`, `book-service` хранит `ownerId`, а не профиль; `exchange-service` условно раскрывает телефоны из `user-service`, но не хранит их; `notification-service` не обращается к профилям и книгам для построения текста | `docs/security/03-personal-data-register.md`, ADR 007 |
 | Authentication / authorization | JWT для пользовательских API; owner-based, participant-based и `ROLE_ADMIN` checks | `docs/security/04-access-control-matrix.md`, сервисные security tests |
 | Password hashing | Пароли хранятся как bcrypt-хэши в `user-service` | `user-service`, `InternalAuthServiceTest` |
 | Password policy | Регистрация и internal user creation требуют длину 10-100, lowercase, uppercase, digit, special char, отсутствие whitespace, username и email local-part | `auth-service` и `user-service` password validation tests |

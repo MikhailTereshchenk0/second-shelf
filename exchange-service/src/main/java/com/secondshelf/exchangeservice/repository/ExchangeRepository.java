@@ -19,10 +19,9 @@ public interface ExchangeRepository extends JpaRepository<ExchangeRequest, Long>
 
     boolean existsByRequestedBookIdAndStatus(Long requestedBookId, ExchangeStatus status);
 
-    boolean existsByRequesterIdAndRequestedBookIdAndOfferedBookIdAndStatusIn(
+    boolean existsByRequesterIdAndRequestedBookIdAndStatusIn(
             Long requesterId,
             Long requestedBookId,
-            Long offeredBookId,
             Collection<ExchangeStatus> statuses
     );
 

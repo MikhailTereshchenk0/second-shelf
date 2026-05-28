@@ -3,6 +3,7 @@ package com.secondshelf.exchangeservice.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.secondshelf.exchangeservice.client.BookServiceClient;
+import com.secondshelf.exchangeservice.client.UserServiceClient;
 import com.secondshelf.exchangeservice.client.dto.BookDto;
 import com.secondshelf.exchangeservice.dto.CreateExchangeRequest;
 import com.secondshelf.exchangeservice.entity.ExchangeRequest;
@@ -33,6 +34,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.Mockito.anyLong;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -62,15 +65,16 @@ class ExchangeServiceJpaTest {
     @MockitoBean
     private BookServiceClient bookServiceClient;
 
+    @MockitoBean
+    private UserServiceClient userServiceClient;
+
     @Test
     void createShouldPersistExchangeAndCreatedOutboxEventInSameTransaction() throws Exception {
         CreateExchangeRequest createRequest = new CreateExchangeRequest();
         createRequest.setRequestedBookId(1001L);
-        createRequest.setOfferedBookId(2002L);
         createRequest.setMessage("Can meet near the station.");
 
         when(bookServiceClient.getBook(1001L)).thenReturn(book(1001L, 55L, "The Left Hand of Darkness", "Ursula K. Le Guin"));
-        when(bookServiceClient.getBook(2002L)).thenReturn(book(2002L, 42L, "Dune", "Frank Herbert"));
 
         try (CorrelationId.Scope ignored = CorrelationId.openScope("corr-create-jpa-123")) {
             exchangeService.create(createRequest, new UserPrincipal(42L, "alice"));
@@ -90,7 +94,8 @@ class ExchangeServiceJpaTest {
 
         assertEquals(ExchangeStatus.PENDING, persistedRequest.getStatus());
         assertEquals("The Left Hand of Darkness", persistedRequest.getRequestedBookTitle());
-        assertEquals("Dune", persistedRequest.getOfferedBookTitle());
+        assertNull(persistedRequest.getOfferedBookId());
+        assertNull(persistedRequest.getOfferedBookTitle());
         assertEquals("exchange.request.created", outboxEvent.getEventType());
         assertEquals(String.valueOf(persistedRequest.getId()), outboxEvent.getAggregateId());
         assertEquals(persistedRequest.getId(), payload.getExchangeRequestId());
@@ -99,16 +104,18 @@ class ExchangeServiceJpaTest {
     }
 
     @Test
-    void acceptShouldReserveBooksAutoDeclineConflictsAndPersistOutboxEvents() throws Exception {
-        ExchangeRequest target = exchangeRepository.saveAndFlush(acceptedCandidate());
+    void requesterAcceptShouldReserveBooksAutoDeclineConflictsAndPersistOutboxEvents() throws Exception {
+        ExchangeRequest target = exchangeRepository.saveAndFlush(ownerOfferedCandidate());
         ExchangeRequest requestedBookConflict = exchangeRepository.saveAndFlush(conflictingPendingRequest(1001L, 3003L, 77L, 55L));
-        ExchangeRequest offeredBookConflict = exchangeRepository.saveAndFlush(conflictingPendingRequest(4004L, 2002L, 88L, 66L));
+        ExchangeRequest offeredBookConflict = exchangeRepository.saveAndFlush(conflictingOwnerOfferedRequest(4004L, 2002L, 88L, 66L));
 
+        when(bookServiceClient.getBook(1001L)).thenReturn(book(1001L, 55L, "The Left Hand of Darkness", "Ursula K. Le Guin"));
+        when(bookServiceClient.getBook(2002L)).thenReturn(book(2002L, 42L, "Dune", "Frank Herbert"));
         when(bookServiceClient.reserve(1001L)).thenReturn(new BookDto());
         when(bookServiceClient.reserve(2002L)).thenReturn(new BookDto());
 
         try (CorrelationId.Scope ignored = CorrelationId.openScope("corr-accept-jpa-123")) {
-            exchangeService.accept(target.getId(), new UserPrincipal(55L, "owner"));
+            exchangeService.accept(target.getId(), new UserPrincipal(42L, "alice"));
         }
         entityManager.flush();
         entityManager.clear();
@@ -119,7 +126,7 @@ class ExchangeServiceJpaTest {
         List<OutboxEvent> outboxEvents = outboxEventRepository.findAll();
 
         assertEquals(ExchangeStatus.ACCEPTED, persistedTarget.getStatus());
-        assertEquals("owner", persistedTarget.getOwnerUsernameSnapshot());
+        assertEquals("alice", persistedTarget.getRequesterUsernameSnapshot());
         assertEquals(ExchangeStatus.DECLINED, persistedRequestedConflict.getStatus());
         assertEquals(ExchangeStatus.DECLINED, persistedOfferedConflict.getStatus());
 
@@ -129,8 +136,8 @@ class ExchangeServiceJpaTest {
         for (OutboxEvent outboxEvent : outboxEvents) {
             ExchangeEventPayload payload = objectMapper.readValue(outboxEvent.getPayload(), ExchangeEventPayload.class);
             assertEquals("corr-accept-jpa-123", payload.getCorrelationId());
-            assertEquals(55L, payload.getInitiatorUserId());
-            assertEquals("owner", payload.getInitiatorUsername());
+            assertEquals(42L, payload.getInitiatorUserId());
+            assertEquals("alice", payload.getInitiatorUsername());
         }
 
         verify(bookServiceClient).reserve(1001L);
@@ -183,7 +190,7 @@ class ExchangeServiceJpaTest {
         assertNull(response.getRequesterCompletionConfirmedAt());
         assertEquals(ownerConfirmedAt, persistedRequest.getOwnerCompletionConfirmedAt());
         assertEquals(0, outboxEventRepository.count());
-        verifyNoInteractions(bookServiceClient);
+        verify(bookServiceClient, never()).markExchanged(anyLong());
     }
 
     @Test
@@ -230,7 +237,7 @@ class ExchangeServiceJpaTest {
         assertEquals("Dune", payload.getOfferedBookTitle());
         assertEquals("Can meet near the station.", payload.getRequestMessage());
 
-        verifyNoInteractions(bookServiceClient);
+        verify(bookServiceClient, never()).markExchanged(anyLong());
     }
 
     @Test
@@ -306,9 +313,9 @@ class ExchangeServiceJpaTest {
                 .build();
     }
 
-    private ExchangeRequest acceptedCandidate() {
+    private ExchangeRequest ownerOfferedCandidate() {
         ExchangeRequest request = acceptedExchangeRequest();
-        request.setStatus(ExchangeStatus.PENDING);
+        request.setStatus(ExchangeStatus.OWNER_OFFERED);
         return request;
     }
 
@@ -327,6 +334,15 @@ class ExchangeServiceJpaTest {
                 .requesterId(requesterId)
                 .status(ExchangeStatus.PENDING)
                 .build();
+    }
+
+    private ExchangeRequest conflictingOwnerOfferedRequest(Long requestedBookId,
+                                                           Long offeredBookId,
+                                                           Long requesterId,
+                                                           Long ownerId) {
+        ExchangeRequest request = conflictingPendingRequest(requestedBookId, offeredBookId, requesterId, ownerId);
+        request.setStatus(ExchangeStatus.OWNER_OFFERED);
+        return request;
     }
 
     private ExchangeRequest completionPendingExchangeRequest(LocalDateTime ownerConfirmedAt) {
@@ -381,8 +397,9 @@ class ExchangeServiceJpaTest {
         @Bean
         ExchangeService exchangeService(ExchangeRepository exchangeRepository,
                                         BookServiceClient bookServiceClient,
+                                        UserServiceClient userServiceClient,
                                         ExchangeOutboxService exchangeOutboxService) {
-            return new ExchangeService(exchangeRepository, bookServiceClient, exchangeOutboxService);
+            return new ExchangeService(exchangeRepository, bookServiceClient, userServiceClient, exchangeOutboxService);
         }
     }
 }

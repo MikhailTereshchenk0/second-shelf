@@ -18,7 +18,7 @@ public class OpenApiConfig {
                 .info(new Info()
                         .title("Second Shelf Exchange API")
                         .version("v1")
-                        .description("Exchange request workflow API. Exchange responses include requested/offered book title and author snapshots persisted in exchange_requests."))
+                        .description("Exchange request workflow API. Requesters create requests without selecting their own book; owners can offer a requester book, and requesters finalize the exchange. Contact fields are exposed only when the workflow allows them."))
                 .components(new Components()
                         .addSecuritySchemes("bearerAuth", new SecurityScheme()
                                 .type(SecurityScheme.Type.HTTP)

@@ -91,9 +91,12 @@ Maven root modules:
     - `GET /internal/users/{id}/claims`
   - `exchange-service` -> `book-service`
     - `GET /internal/books/{id}`
+    - `GET /internal/books/owners/{ownerId}/available-public`
     - `POST /internal/books/{id}/reserve`
     - `POST /internal/books/{id}/available`
     - `POST /internal/books/{id}/exchanged`
+  - `exchange-service` -> `user-service`
+    - `GET /internal/users/{id}/contact`
 
 ### RabbitMQ, Outbox, And Delivery Reliability
 
@@ -152,8 +155,9 @@ Maven root modules:
 
 - `notification-service` does not call `user-service` or `book-service` to
   build notification text.
-- `exchange-service` snapshots requested/offered book titles and authors into
-  `exchange_requests` and copies them into the outbox payload.
+- `exchange-service` snapshots requested book titles/authors at creation time
+  and offered book titles/authors only after the owner creates a counter offer,
+  then copies available snapshots into the outbox payload.
 - Notification text is built from:
   - `initiatorUsername` when available, otherwise `User #<id>`;
   - book title/author snapshots when available, otherwise `book #<id>`;
@@ -323,8 +327,9 @@ schema.
 
 ### `exchange-service` -> `exchange_db`
 
-- `exchange_requests`: requested/offered book ids, owner/requester ids,
-  status, optional message, requested/offered book title and author snapshots,
+- `exchange_requests`: requested book id, optional offered book id,
+  owner/requester ids, status, optional message, requested book title and
+  author snapshots, optional offered book title and author snapshots,
   `owner_completion_confirmed_at`, `requester_completion_confirmed_at`,
   `created_at`, `updated_at`.
 - `outbox_events`: `event_id`, aggregate metadata, serialized payload,
@@ -343,48 +348,56 @@ Current exchange workflow in `exchange-service`:
 
 1. The requester creates an exchange request with:
    - `requestedBookId`
-   - `offeredBookId`
    - optional `message`
    - optional `Idempotency-Key` header, scoped per requester, 16-128
      characters.
-2. `exchange-service` synchronously loads both books from `book-service`.
+   `offeredBookId` is not selected by the requester at creation time. If a
+   legacy client still sends it, the value is ignored for the create decision.
+2. `exchange-service` synchronously loads the requested book from
+   `book-service`.
 3. Validation on create:
-   - requested and offered books must be different;
    - requester cannot request their own book;
    - requested book must be `PUBLIC` and `AVAILABLE`;
-   - offered book must belong to requester;
-   - offered book must be `PUBLIC` and `AVAILABLE`;
    - if a requester retries with the same `Idempotency-Key` and identical
      payload, the original exchange response is returned without creating a
      second exchange or outbox event;
    - if the same requester reuses an `Idempotency-Key` with a different
-     requested book, offered book, or message, the request fails with
+     requested book or message, the request fails with
      `IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_REQUEST`;
-   - duplicate active request with the same book pair is rejected when status
-     is `PENDING`, `ACCEPTED`, `COMPLETION_PENDING`, or `REPAIR_REQUIRED`.
+   - duplicate active request from the same requester for the same requested
+     book is rejected when status is `PENDING`, `OWNER_OFFERED`, `ACCEPTED`,
+     `COMPLETION_PENDING`, or `REPAIR_REQUIRED`.
 4. The exchange request is stored with status `PENDING`, together with the
-   current title/author snapshots of both books and the requester's username
-   snapshot. The owner's username snapshot is filled later from owner-side
-   actions when available.
+   current title/author snapshot of the requested book and the requester's
+   username snapshot. The owner's username snapshot and offered book snapshot
+   are filled later from owner-side actions when available.
    Exchange API responses reuse these persisted snapshots and do not fetch book
    metadata again during response mapping.
 5. Event `exchange.request.created` is recorded in `outbox_events`.
-6. The owner of the requested book can accept or decline the request.
-7. On accept:
-   - only `PENDING` requests can be accepted;
-   - both books are reserved through internal `book-service` endpoints;
-   - conflicting pending requests involving the same books are automatically
-     moved to `DECLINED`;
+6. In the owner incoming list, the owner sees the requester phone number and
+   the requester's currently available public books. The requester does not see
+   the owner phone at this stage.
+7. The owner can decline the request or create a counter offer:
+   - on decline, only the owner can decline `PENDING` requests and event
+     `exchange.request.declined` is recorded;
+   - on counter offer, the owner selects one requester-owned `PUBLIC` and
+     `AVAILABLE` book; the request moves to `OWNER_OFFERED`, and event
+     `exchange.request.owner_offered` is recorded.
+8. The requester can accept or decline the owner offer:
+   - only the requester can accept `OWNER_OFFERED` requests;
+   - on accept, both books are reserved through internal `book-service`
+     endpoints and the request becomes `ACCEPTED`;
+   - conflicting `PENDING` or `OWNER_OFFERED` requests involving either book
+     are automatically moved to `DECLINED`;
    - events are recorded for the accepted request and for every auto-declined
-     request.
-8. On decline:
-   - only the owner can decline;
-   - only `PENDING` requests can be declined;
-   - event `exchange.request.declined` is recorded.
+     request;
+   - owner phone becomes visible to the requester only after this final accept;
+   - on requester decline, the request becomes `CANCELLED`, books remain
+     available, and owner phone remains hidden.
 9. On cancel:
    - only the requester can cancel;
-   - only `PENDING` and `ACCEPTED` requests without any completion
-     confirmation can be cancelled;
+   - only `PENDING`, `OWNER_OFFERED`, and `ACCEPTED` requests without any
+     completion confirmation can be cancelled;
    - if the request was `ACCEPTED`, both books are returned to `AVAILABLE`;
    - event `exchange.request.cancelled` is recorded.
 10. On complete:
@@ -403,8 +416,8 @@ Current exchange workflow in `exchange-service`:
      `repairRequiredAt`, `repairAttempts`, and `lastRepairAttemptAt`;
    - if accepted-cancel release compensation fails and can leave books
      inconsistent, the exchange also moves to `REPAIR_REQUIRED`;
-   - normal participant actions (`accept`, `decline`, `cancel`, `complete`)
-     are blocked while repair is required.
+   - normal participant actions (`offer`, `accept`, `decline`, `cancel`,
+     `complete`) are blocked while repair is required.
 
 ### Operational Exchange Repair
 
@@ -471,11 +484,12 @@ Related visibility states in `book-service`:
 | Status | Meaning |
 | --- | --- |
 | `PENDING` | Request created and waiting for owner decision. |
-| `ACCEPTED` | Request accepted and both books reserved. |
+| `OWNER_OFFERED` | Owner selected a requester book as a counter offer; requester must accept or decline it. |
+| `ACCEPTED` | Requester accepted the owner offer and both books are reserved. |
 | `COMPLETION_PENDING` | One participant confirmed completion; waiting for the second participant. |
 | `REPAIR_REQUIRED` | A distributed book transition or compensation partially failed; participant actions are blocked until admin repair completes. |
-| `DECLINED` | Request explicitly declined or auto-declined because another request was accepted. |
-| `CANCELLED` | Request cancelled by requester before any completion confirmation. |
+| `DECLINED` | Request explicitly declined by the owner or auto-declined because another request was accepted. |
+| `CANCELLED` | Request cancelled by requester or requester declined the owner offer before any completion confirmation. |
 | `COMPLETED` | Both participants confirmed completion and both books were marked exchanged. |
 
 ### Notification Statuses
@@ -505,7 +519,8 @@ Current exchange-derived notifications:
 | RabbitMQ event | Notification type | Recipient |
 | --- | --- | --- |
 | `exchange.request.created` | `EXCHANGE_REQUEST_CREATED` | owner of the requested book |
-| `exchange.request.accepted` | `EXCHANGE_REQUEST_ACCEPTED` | requester |
+| `exchange.request.owner_offered` | `EXCHANGE_REQUEST_OWNER_OFFERED` | requester |
+| `exchange.request.accepted` | `EXCHANGE_REQUEST_ACCEPTED` | owner of the requested book |
 | `exchange.request.declined` | `EXCHANGE_REQUEST_DECLINED` | requester |
 | `exchange.request.cancelled` | `EXCHANGE_REQUEST_CANCELLED` | owner of the requested book |
 | `exchange.request.completion_confirmed` | `EXCHANGE_REQUEST_COMPLETION_CONFIRMED` | counterparty who still needs to confirm |
@@ -785,7 +800,7 @@ is intended as a defense-in-depth layer.
 | `BOOK_SERVICE_PORT` | External book-service port. |
 | `EXCHANGE_SERVICE_PORT` | External exchange-service port. |
 | `NOTIFICATION_SERVICE_PORT` | External notification-service port. |
-| `USER_SERVICE_BASE_URL` | Base URL used by `auth-service` outside Compose. |
+| `USER_SERVICE_BASE_URL` | Base URL used by `auth-service` and `exchange-service` outside Compose. |
 | `BOOK_SERVICE_BASE_URL` | Base URL used by `exchange-service` outside Compose. |
 
 ### Seed Admin
@@ -867,13 +882,15 @@ kept out of normal `test` and `package` workflows.
 2. Happy-path exchange with two-sided completion:
    - each user creates one book and publishes it if needed;
    - requester creates an exchange request;
-   - owner accepts it;
+   - owner opens incoming requests, verifies requester phone and available
+     public books, then creates an owner offer;
+   - requester accepts the owner offer and verifies status `ACCEPTED`;
    - one participant calls `/api/v1/exchanges/{id}/complete` and verifies
      status `COMPLETION_PENDING`;
    - the second participant calls `/complete` and verifies status `COMPLETED`,
      and both books become `EXCHANGED` and `PRIVATE`.
 3. Notification flow:
-   - after create / accept / decline / cancel / complete actions, call
+   - after create / owner offer / accept / decline / cancel / complete actions, call
      `GET /api/v1/notifications` and
      `GET /api/v1/notifications/unread-count`;
    - verify that notification text contains usernames and book titles/authors

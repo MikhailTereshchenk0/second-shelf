@@ -16,6 +16,7 @@ public class PrivateUserProfileResponse {
     private String firstName;
     private String lastName;
     private String city;
+    private String phoneNumber;
     private String about;
     private Set<Role> roles;
     private boolean enabled;

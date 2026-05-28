@@ -1,0 +1,9 @@
+databaseChangeLog:
+  - changeSet:
+      id: 011-make-offered-book-optional-for-owner-offer
+      author: codex
+      changes:
+        - dropNotNullConstraint:
+            tableName: exchange_requests
+            columnName: offered_book_id
+            columnDataType: BIGINT

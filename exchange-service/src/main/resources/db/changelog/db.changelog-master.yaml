@@ -19,3 +19,5 @@ databaseChangeLog:
       file: db/changelog/changes/009-add-outbox-retry-scheduling.yaml
   - include:
       file: db/changelog/changes/010-add-outbox-manual-retry-audit.yaml
+  - include:
+      file: db/changelog/changes/011-make-offered-book-optional-for-owner-offer.yaml

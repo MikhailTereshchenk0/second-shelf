@@ -92,6 +92,7 @@ Non-local profiles содержат startup validation, которая отбр�
 ### `exchange-service`
 
 - использовать `BOOK_SERVICE_BASE_URL` только во внутреннем сегменте;
+- использовать `USER_SERVICE_BASE_URL` только во внутреннем сегменте для условного получения контактного телефона участника обмена;
 - мониторить pending outbox, `TERMINAL_FAILED`, repair attempts и admin outbox retry;
 - ограничить admin repair/outbox endpoints ролью и инфраструктурными controls;
 - закрыть `/actuator/metrics` от публичного доступа.

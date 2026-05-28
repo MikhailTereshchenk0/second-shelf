@@ -62,7 +62,7 @@ class ExchangeEventNotificationServiceJpaTest {
         assertEquals(NotificationType.EXCHANGE_REQUEST_CREATED, notification.getType());
         assertEquals("New exchange request", notification.getTitle());
         assertEquals(
-                "alice wants to exchange \"Dune\" by Frank Herbert for your \"The Left Hand of Darkness\" by Ursula K. Le Guin. Message from requester: Can meet this weekend.",
+                "alice wants your \"The Left Hand of Darkness\" by Ursula K. Le Guin. Message from requester: Can meet this weekend.",
                 notification.getMessage()
         );
         assertEquals(NotificationStatus.UNREAD, notification.getStatus());
@@ -78,12 +78,32 @@ class ExchangeEventNotificationServiceJpaTest {
     }
 
     @Test
+    void processShouldPersistOwnerOfferedNotificationForRequester() {
+        // arrange
+        ExchangeEventPayload payload = sampleEvent(UUID.randomUUID(), "exchange.request.owner_offered");
+        payload.setInitiatorUserId(55L);
+        payload.setInitiatorUsername("owner");
+        payload.setStatus("OWNER_OFFERED");
+
+        // act
+        exchangeEventNotificationService.process(payload);
+
+        // assert
+        Notification notification = notificationRepository.findAll().get(0);
+        assertEquals(42L, notification.getUserId());
+        assertEquals(NotificationType.EXCHANGE_REQUEST_OWNER_OFFERED, notification.getType());
+        assertEquals("New exchange offer", notification.getTitle());
+        assertEquals(
+                "owner offered to exchange \"The Left Hand of Darkness\" by Ursula K. Le Guin for your \"Dune\" by Frank Herbert. Confirm or decline the offer.",
+                notification.getMessage()
+        );
+    }
+
+    @Test
     void processShouldRemainIdempotentForDuplicateEventId() {
         // arrange
         UUID eventId = UUID.randomUUID();
         ExchangeEventPayload payload = sampleEvent(eventId, "exchange.request.accepted");
-        payload.setInitiatorUserId(55L);
-        payload.setInitiatorUsername("owner");
 
         // act
         exchangeEventNotificationService.process(payload);
@@ -94,11 +114,11 @@ class ExchangeEventNotificationServiceJpaTest {
         assertEquals(1, processedEventRepository.count());
 
         Notification notification = notificationRepository.findAll().get(0);
-        assertEquals(42L, notification.getUserId());
+        assertEquals(55L, notification.getUserId());
         assertEquals(NotificationType.EXCHANGE_REQUEST_ACCEPTED, notification.getType());
-        assertEquals("Your exchange request was accepted", notification.getTitle());
+        assertEquals("Your exchange offer was accepted", notification.getTitle());
         assertEquals(
-                "owner accepted your request to exchange \"Dune\" by Frank Herbert for \"The Left Hand of Darkness\" by Ursula K. Le Guin.",
+                "alice accepted the offer to exchange \"The Left Hand of Darkness\" by Ursula K. Le Guin for \"Dune\" by Frank Herbert.",
                 notification.getMessage()
         );
     }

@@ -27,6 +27,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -71,7 +72,8 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.about").value("Book lover"))
                 .andExpect(jsonPath("$.email").doesNotExist())
                 .andExpect(jsonPath("$.firstName").doesNotExist())
-                .andExpect(jsonPath("$.lastName").doesNotExist());
+                .andExpect(jsonPath("$.lastName").doesNotExist())
+                .andExpect(jsonPath("$.phoneNumber").doesNotExist());
 
         verify(userService).getById(7L);
     }
@@ -97,7 +99,8 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.about").value("Collector"))
                 .andExpect(jsonPath("$.email").doesNotExist())
                 .andExpect(jsonPath("$.firstName").doesNotExist())
-                .andExpect(jsonPath("$.lastName").doesNotExist());
+                .andExpect(jsonPath("$.lastName").doesNotExist())
+                .andExpect(jsonPath("$.phoneNumber").doesNotExist());
 
         verify(userService).getByUsername("bob");
     }
@@ -111,6 +114,7 @@ class UserControllerTest {
                 .firstName("Charlie")
                 .lastName("Reader")
                 .city("Brest")
+                .phoneNumber("+375291112255")
                 .about("Private profile")
                 .roles(Set.of(Role.ROLE_USER))
                 .enabled(true)
@@ -127,6 +131,7 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.email").value("charlie@example.com"))
                 .andExpect(jsonPath("$.firstName").value("Charlie"))
                 .andExpect(jsonPath("$.lastName").value("Reader"))
+                .andExpect(jsonPath("$.phoneNumber").value("+375291112255"))
                 .andExpect(jsonPath("$.roles[0]").value("ROLE_USER"))
                 .andExpect(jsonPath("$.enabled").value(true))
                 .andExpect(jsonPath("$.createdAt").value("2025-01-10T12:00:00"));
@@ -151,6 +156,7 @@ class UserControllerTest {
                 .firstName("Diana")
                 .lastName("Updated")
                 .city("Vitebsk")
+                .phoneNumber("+375291112266")
                 .about("Updated bio")
                 .roles(Set.of(Role.ROLE_USER))
                 .enabled(true)
@@ -168,6 +174,7 @@ class UserControllerTest {
                                   "firstName": "Diana",
                                   "lastName": "Updated",
                                   "city": "Vitebsk",
+                                  "phoneNumber": "+375291112266",
                                   "about": "Updated bio"
                                 }
                                 """))
@@ -177,10 +184,12 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.email").value("diana@example.com"))
                 .andExpect(jsonPath("$.firstName").value("Diana"))
                 .andExpect(jsonPath("$.lastName").value("Updated"))
+                .andExpect(jsonPath("$.phoneNumber").value("+375291112266"))
                 .andExpect(jsonPath("$.roles[0]").value("ROLE_USER"))
                 .andExpect(jsonPath("$.enabled").value(true));
 
-        verify(userService).updateProfile(eq(11L), org.mockito.ArgumentMatchers.any(UpdateUserProfileRequest.class));
+        verify(userService).updateProfile(eq(11L),
+                argThat(request -> "+375291112266".equals(request.getPhoneNumber())));
     }
 
     @Test

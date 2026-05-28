@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum ExchangeEventType {
     EXCHANGE_REQUEST_CREATED("exchange.request.created"),
+    EXCHANGE_REQUEST_OWNER_OFFERED("exchange.request.owner_offered"),
     EXCHANGE_REQUEST_ACCEPTED("exchange.request.accepted"),
     EXCHANGE_REQUEST_DECLINED("exchange.request.declined"),
     EXCHANGE_REQUEST_CANCELLED("exchange.request.cancelled"),

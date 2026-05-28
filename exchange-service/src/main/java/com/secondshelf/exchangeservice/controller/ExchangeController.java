@@ -2,6 +2,7 @@ package com.secondshelf.exchangeservice.controller;
 
 import com.secondshelf.exchangeservice.dto.CreateExchangeRequest;
 import com.secondshelf.exchangeservice.dto.ExchangeResponse;
+import com.secondshelf.exchangeservice.dto.OwnerOfferRequest;
 import com.secondshelf.exchangeservice.security.UserPrincipal;
 import com.secondshelf.exchangeservice.service.ExchangeService;
 import com.secondshelf.exchangeservice.web.PageableSanitizer;
@@ -36,7 +37,7 @@ public class ExchangeController {
 
     @Operation(
             summary = "Create exchange request",
-            description = "Creates a new exchange request where the authenticated user offers one of their books in exchange for a requested public book. Responses include requested/offered book title and author snapshots plus persisted participant username snapshots from exchange_requests when available."
+            description = "Creates a new exchange request for a requested public book. The requester does not choose their own book at creation time; the owner may later choose one requester book as a counter offer. Responses include book snapshots, participant username snapshots, and contact fields only when the workflow allows them."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Exchange request created successfully"),
@@ -55,7 +56,7 @@ public class ExchangeController {
 
     @Operation(
             summary = "Get my outgoing exchange requests",
-            description = "Returns paginated list of exchange requests created by the authenticated user, including stored requested/offered book title and author snapshots and persisted requester/owner username snapshots when available"
+            description = "Returns paginated list of exchange requests created by the authenticated user. Owner phone is included only after the requester accepts the owner offer and the exchange becomes ACCEPTED."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Outgoing exchange requests returned"),
@@ -70,7 +71,7 @@ public class ExchangeController {
 
     @Operation(
             summary = "Get my incoming exchange requests",
-            description = "Returns paginated list of exchange requests received for books owned by the authenticated user, including stored requested/offered book title and author snapshots and persisted requester/owner username snapshots when available"
+            description = "Returns paginated list of exchange requests received for books owned by the authenticated user. Owner view includes requester phone and the requester's currently available public books."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Incoming exchange requests returned"),
@@ -84,8 +85,27 @@ public class ExchangeController {
     }
 
     @Operation(
-            summary = "Accept exchange request",
-            description = "Accepts an incoming exchange request and returns the exchange with stored requested/offered book title and author snapshots plus participant username snapshots"
+            summary = "Create owner counter offer",
+            description = "Allows the owner of the requested book to select one available public book from the requester and move the exchange from PENDING to OWNER_OFFERED."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Owner counter offer created"),
+            @ApiResponse(responseCode = "400", description = "Invalid request payload"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "403", description = "Operation is forbidden"),
+            @ApiResponse(responseCode = "404", description = "Exchange request or offered book not found"),
+            @ApiResponse(responseCode = "409", description = "Exchange state conflict")
+    })
+    @PostMapping("/{id}/offer")
+    public ExchangeResponse offer(@PathVariable Long id,
+                                  @Valid @RequestBody OwnerOfferRequest request,
+                                  @AuthenticationPrincipal UserPrincipal principal) {
+        return exchangeService.offer(id, request, principal);
+    }
+
+    @Operation(
+            summary = "Accept owner offer",
+            description = "Allows the requester to accept the owner's selected book offer. This is the final agreement step: both books are reserved and the requester can see owner phone after the request becomes ACCEPTED."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Exchange request accepted"),
@@ -102,7 +122,7 @@ public class ExchangeController {
 
     @Operation(
             summary = "Decline exchange request",
-            description = "Declines an incoming exchange request and returns the exchange with stored requested/offered book title and author snapshots plus participant username snapshots"
+            description = "Allows the owner of the requested book to decline a PENDING exchange request. No books are reserved and owner phone remains hidden from the requester."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Exchange request declined"),
@@ -118,8 +138,25 @@ public class ExchangeController {
     }
 
     @Operation(
+            summary = "Decline owner offer",
+            description = "Allows the requester to decline the owner counter offer. The exchange is cancelled and owner phone remains hidden from the requester."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Owner offer declined"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "403", description = "Operation is forbidden"),
+            @ApiResponse(responseCode = "404", description = "Exchange request not found"),
+            @ApiResponse(responseCode = "409", description = "Exchange state conflict")
+    })
+    @PostMapping("/{id}/decline-offer")
+    public ExchangeResponse declineOffer(@PathVariable Long id,
+                                         @AuthenticationPrincipal UserPrincipal principal) {
+        return exchangeService.declineOffer(id, principal);
+    }
+
+    @Operation(
             summary = "Cancel exchange request",
-            description = "Cancels an exchange request created by the authenticated user and returns the exchange with stored requested/offered book title and author snapshots plus participant username snapshots"
+            description = "Cancels an exchange request created by the authenticated requester. PENDING and OWNER_OFFERED requests cancel without book state changes; ACCEPTED requests without completion confirmation release both reserved books."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Exchange request cancelled"),
@@ -136,7 +173,7 @@ public class ExchangeController {
 
     @Operation(
             summary = "Complete exchange request",
-            description = "Confirms exchange completion for the authenticated participant. The exchange becomes completed only after both participants confirm it. Responses include stored requested/offered book title and author snapshots plus participant username snapshots."
+            description = "Confirms exchange completion for the authenticated participant. The exchange becomes completed only after both participants confirm it."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Exchange request completed"),

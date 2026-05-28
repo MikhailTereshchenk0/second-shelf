@@ -5,7 +5,8 @@
 Some APIs are not intended for frontend clients:
 
 - `auth-service` calls `user-service` endpoints for profile creation, authentication, and claims loading;
-- `exchange-service` calls `book-service` endpoints to inspect and transition book state.
+- `exchange-service` calls `book-service` endpoints to inspect book state, list the requester's available public books, and transition book state;
+- `exchange-service` calls `user-service` contact endpoint to disclose phone numbers only when the exchange workflow permits it.
 
 These routes are exposed under `/internal/**` in provider services and are hidden from Swagger through `@Hidden`.
 

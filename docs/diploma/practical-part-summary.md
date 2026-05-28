@@ -34,9 +34,10 @@
    создает, обновляет, публикует, скрывает и удаляет их, пока бизнес-состояние книги допускает изменение.
 
 4. Exchange request lifecycle:
-   `exchange-service` проверяет запрошенную и предложенную книгу через internal `book-service` API. Заявка создается в
-   статусе `PENDING`, владелец запрошенной книги может принять или отклонить ее, а requester может отменить допустимую
-   заявку. При принятии обе книги резервируются, конфликтующие pending-заявки автоматически отклоняются.
+   `exchange-service` создает заявку по выбранной чужой книге без встречной книги заявителя. В статусе `PENDING`
+   владелец видит телефон заявителя и список его доступных публичных книг, затем отклоняет заявку или выбирает одну
+   книгу как встречное предложение. После статуса `OWNER_OFFERED` requester принимает или отклоняет предложение; только
+   финальное принятие переводит заявку в `ACCEPTED`, резервирует обе книги и раскрывает requester'у телефон владельца.
 
 5. Two-sided completion:
    завершение обмена требует подтверждения обеих сторон. Первое подтверждение переводит заявку в `COMPLETION_PENDING`
@@ -99,8 +100,8 @@
 
 - Critical security tests: покрывают password policy, refresh token reuse detection, rate limiting, internal token
   protection, production secret validation, correlation id и audit log masking.
-- Business workflow tests: покрывают управление профилем, каталог книг, owner-based правила, lifecycle exchange request,
-  two-sided completion, admin repair и authorization restrictions.
+- Business workflow tests: покрывают управление профилем, каталог книг, owner-based правила, двухшаговый lifecycle
+  exchange request, условное раскрытие контактов, two-sided completion, admin repair и authorization restrictions.
 - Async reliability tests: покрывают outbox event creation, publisher confirms/failures, terminal failed retry, RabbitMQ
   topology, idempotent notification processing, DLQ и redrive.
 
